@@ -53,10 +53,11 @@
 - [ ] 3.2.5: Add retry logic and rate limiting (100/sec → 50/sec → 25/sec)
 
 ### 3.3 Asset Discovery
-- [ ] 3.3.1: Parse widget JSON to extract asset hashes from "hash" field
-- [ ] 3.3.2: Create asset metadata structure (hash, widget_type, original_filename, canvas info)
-- [ ] 3.3.3: Implement asset deduplication across canvases
-- [ ] 3.3.4: Add media asset type detection (video, image, PDF only)
+- [✅] 3.3.1: Parse widget JSON to extract asset hashes from "hash" field
+- [✅] 3.3.2: Create asset metadata structure (hash, widget_type, original_filename, canvas info)
+- [✅] 3.3.3: Implement asset deduplication across canvases
+- [✅] 3.3.4: Add media asset type detection (video, image, PDF only)
+- [✅] 3.3.5: Collect assets without hash values for database lookup
 
 ## Phase 4: Filesystem Operations
 
@@ -74,10 +75,20 @@
 - [ ] 4.4.5: Update asset discovery and restoration logic based on findings
 
 ### 4.2 Missing Asset Detection
-- [ ] 4.2.1: Compare API asset hashes with filesystem contents (hash-only matching)
-- [ ] 4.2.2: Create missing asset identification logic
-- [ ] 4.2.3: Add asset metadata correlation (canvas, widget info, no workspace)
-- [ ] 4.2.4: Implement missing asset reporting structure
+- [✅] 4.2.1: Compare API asset hashes with filesystem contents (hash-only matching)
+- [✅] 4.2.2: Create missing asset identification logic
+- [✅] 4.2.3: Add asset metadata correlation (canvas, widget info, no workspace)
+- [✅] 4.2.4: Implement missing asset reporting structure
+
+### 4.5 Database Hash Lookup (NEW)
+- [✅] 4.5.1: Read PostgreSQL configuration from mt-canvus-server.ini
+- [✅] 4.5.2: Connect to PostgreSQL database
+- [✅] 4.5.3: Query asset_files table by original_filename
+- [✅] 4.5.4: Retrieve public and private hash values from database
+- [✅] 4.5.5: Search for private hash in assets folder (first 2 chars subfolder)
+- [✅] 4.5.6: Search for private hash in backup folder if not found
+- [✅] 4.5.7: Implement dry-run mode for hash lookup
+- [✅] 4.5.8: Generate hash lookup report
 
 ### 4.3 File Operations
 - [ ] 4.3.1: Create file copying utilities with progress tracking

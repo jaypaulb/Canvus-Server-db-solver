@@ -29,9 +29,10 @@ The current manual workaround of re-uploading files to make them reappear is ent
 
 ### Use Cases
 1. **Asset Discovery**: Identify all missing assets across all Canvus workspaces
-2. **Backup Search**: Locate missing assets in multiple backup generations (newest first)
-3. **Asset Restoration**: Copy missing assets from backup to active assets folder
-4. **Reporting**: Generate detailed reports for audit and verification purposes
+2. **Hash Lookup**: Query PostgreSQL database to find hash values for assets without hash information
+3. **Backup Search**: Locate missing assets in multiple backup generations (newest first)
+4. **Asset Restoration**: Copy missing assets from backup to active assets folder
+5. **Reporting**: Generate detailed reports for audit and verification purposes
 
 ## Functional Requirements
 
@@ -41,23 +42,30 @@ The current manual workaround of re-uploading files to make them reappear is ent
    - Query all canvases directly (no workspace enumeration needed)
    - Extract media asset hashes and metadata from widget JSON responses (video, image, PDF only)
 
-2. **Filesystem Analysis**
+2. **Database Hash Lookup** (NEW)
+   - Connect to PostgreSQL database using configuration from `mt-canvus-server.ini`
+   - Query `asset_files` table by `original_filename` to retrieve public and private hash values
+   - Process assets that don't have hash values from API discovery
+   - Support case-insensitive filename matching
+
+3. **Filesystem Analysis**
    - Scan active assets folder for existing files
+   - Search for hash values in assets folder using first 2 characters as subfolder
    - Compare API asset hashes against filesystem contents (hash-only matching)
    - Identify missing assets by hash value (ignore file extensions for matching)
 
-3. **Backup Search & Recovery**
+4. **Backup Search & Recovery**
    - Search multiple backup folders recursively (newest to oldest)
    - Locate missing assets in backup locations
    - Copy assets from backup to active assets folder
    - Handle file permission issues (admin privileges required)
 
-4. **Parallel Processing**
+5. **Parallel Processing**
    - Simultaneous filesystem scanning and API querying for performance
    - Concurrent canvas processing with rate limiting (100/sec → 50/sec → 25/sec)
    - Concurrent backup searching across multiple backup locations
 
-5. **Comprehensive Reporting**
+6. **Comprehensive Reporting**
    - Detailed report showing missing assets by canvas:
      ```
      Missing Files
@@ -66,6 +74,7 @@ The current manual workaround of re-uploading files to make them reappear is ent
        WidgetName (Type: Image) - Hash: a1b2c3d4e5f6
      ```
    - CSV export with `{hash}.{ext}` filenames for restoration tracking
+   - Hash lookup report showing database query results, assets folder search, and backup locations
    - Error reporting for assets found in DB but not in any backup
 
 ### User Interface

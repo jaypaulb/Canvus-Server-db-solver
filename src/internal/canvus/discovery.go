@@ -25,6 +25,7 @@ type AssetInfo struct {
 // DiscoveryResult represents the result of asset discovery
 type DiscoveryResult struct {
 	Assets           []AssetInfo `json:"assets"`
+	AssetsWithoutHash []AssetInfo `json:"assets_without_hash"` // Assets that don't have a hash value
 	Canvases         []canvussdk.Canvas `json:"canvases"`
 	StartTime        time.Time   `json:"start_time"`
 	EndTime          time.Time   `json:"end_time"`
@@ -86,6 +87,7 @@ func DiscoverAllAssets(session *canvussdk.Session, requestsPerSecond int) (*Disc
 	result := &DiscoveryResult{
 		StartTime: startTime,
 		Assets:    make([]AssetInfo, 0),
+		AssetsWithoutHash: make([]AssetInfo, 0),
 		Canvases:  make([]canvussdk.Canvas, 0),
 		Errors:    make([]string, 0),
 	}
@@ -118,14 +120,16 @@ func DiscoverAllAssets(session *canvussdk.Session, requestsPerSecond int) (*Disc
 			rateLimiter.Wait() // Rate limit
 
 			// Extract media assets from widgets
-			widgetAssets := extractMediaAssets(ctx, session, canvas)
+			widgetAssets, widgetAssetsNoHash := extractMediaAssets(ctx, session, canvas)
 
 			// Extract media assets from canvas background
-			backgroundAssets := extractBackgroundAssets(ctx, session, canvas)
+			backgroundAssets, backgroundAssetsNoHash := extractBackgroundAssets(ctx, session, canvas)
 
 			mu.Lock()
 			result.Assets = append(result.Assets, widgetAssets...)
 			result.Assets = append(result.Assets, backgroundAssets...)
+			result.AssetsWithoutHash = append(result.AssetsWithoutHash, widgetAssetsNoHash...)
+			result.AssetsWithoutHash = append(result.AssetsWithoutHash, backgroundAssetsNoHash...)
 			mu.Unlock()
 		}(canvas)
 	}
@@ -152,8 +156,10 @@ func DiscoverAllAssets(session *canvussdk.Session, requestsPerSecond int) (*Disc
 }
 
 // extractMediaAssets extracts media assets from widgets by calling the generic ListWidgets endpoint
-func extractMediaAssets(ctx context.Context, session *canvussdk.Session, canvas canvussdk.Canvas) []AssetInfo {
+// Returns assets with hash and assets without hash separately
+func extractMediaAssets(ctx context.Context, session *canvussdk.Session, canvas canvussdk.Canvas) ([]AssetInfo, []AssetInfo) {
 	var assets []AssetInfo
+	var assetsWithoutHash []AssetInfo
 	logger := logging.GetLogger()
 
 	// Get all widgets for this canvas
@@ -176,23 +182,32 @@ func extractMediaAssets(ctx context.Context, session *canvussdk.Session, canvas 
 
 	// Process each widget and extract media assets
 	mediaCount := 0
+	mediaCountNoHash := 0
 	for _, widget := range widgets {
 		// Get the specific widget details to check for hash field
-		asset := extractAssetFromWidget(ctx, session, canvas, widget)
+		asset, assetNoHash := extractAssetFromWidget(ctx, session, canvas, widget)
 		if asset != nil {
 			assets = append(assets, *asset)
 			mediaCount++
 			logger.Verbose("Found media asset: %s (%s) - Hash: %s", asset.WidgetName, asset.WidgetType, asset.Hash)
 		}
+		if assetNoHash != nil {
+			assetsWithoutHash = append(assetsWithoutHash, *assetNoHash)
+			mediaCountNoHash++
+			logger.Verbose("Found media asset without hash: %s (%s) - Filename: %s", assetNoHash.WidgetName, assetNoHash.WidgetType, assetNoHash.OriginalFilename)
+		}
 	}
 
-	logger.Verbose("Extracted %d media assets from canvas '%s' (ID: %s)", mediaCount, canvas.Name, canvas.ID)
-	return assets
+	logger.Verbose("Extracted %d media assets (with hash) and %d media assets (without hash) from canvas '%s' (ID: %s)", 
+		mediaCount, mediaCountNoHash, canvas.Name, canvas.ID)
+	return assets, assetsWithoutHash
 }
 
 // extractBackgroundAssets extracts media assets from canvas background images
-func extractBackgroundAssets(ctx context.Context, session *canvussdk.Session, canvas canvussdk.Canvas) []AssetInfo {
+// Returns assets with hash and assets without hash separately
+func extractBackgroundAssets(ctx context.Context, session *canvussdk.Session, canvas canvussdk.Canvas) ([]AssetInfo, []AssetInfo) {
 	var assets []AssetInfo
+	var assetsWithoutHash []AssetInfo
 	logger := logging.GetLogger()
 
 	// Get canvas background
@@ -223,7 +238,7 @@ func extractBackgroundAssets(ctx context.Context, session *canvussdk.Session, ca
 		logger.Verbose("No background image found for canvas '%s' (ID: %s)", canvas.Name, canvas.ID)
 	}
 
-	return assets
+	return assets, assetsWithoutHash
 }
 
 // validateAssetsOnServer validates that assets exist on the Canvus server using GET /assets/{hash}
@@ -279,8 +294,10 @@ func validateAssetsOnServer(ctx context.Context, session *canvussdk.Session, ass
 	return result, nil
 }
 
-// extractAssetFromWidget extracts asset information from a widget if it has a hash field
-func extractAssetFromWidget(ctx context.Context, session *canvussdk.Session, canvas canvussdk.Canvas, widget canvussdk.Widget) *AssetInfo {
+// extractAssetFromWidget extracts asset information from a widget
+// Returns asset with hash (if hash exists) and asset without hash (if no hash but has filename)
+// One or both may be nil
+func extractAssetFromWidget(ctx context.Context, session *canvussdk.Session, canvas canvussdk.Canvas, widget canvussdk.Widget) (*AssetInfo, *AssetInfo) {
 	logger := logging.GetLogger()
 
 	// Get the specific widget details based on type
@@ -342,21 +359,38 @@ func extractAssetFromWidget(ctx context.Context, session *canvussdk.Session, can
 		}
 	}
 
-	// Only return asset if it has a hash (media assets only)
-	if hash == "" {
-		logger.Verbose("No hash found for widget ID=%s, Type=%s - not a media asset", widget.ID, widget.WidgetType)
-		return nil
+	var assetWithHash *AssetInfo
+	var assetWithoutHash *AssetInfo
+
+	// If hash exists, return asset with hash
+	if hash != "" {
+		assetWithHash = &AssetInfo{
+			Hash:             hash,
+			WidgetType:       widget.WidgetType,
+			OriginalFilename: filename,
+			CanvasID:         canvas.ID,
+			CanvasName:       canvas.Name,
+			WidgetID:         widget.ID,
+			WidgetName:       name,
+		}
+		logger.Verbose("Found asset with hash for widget ID=%s: %s", widget.ID, hash)
+	} else if filename != "" {
+		// If no hash but has filename, return asset without hash (for database lookup)
+		assetWithoutHash = &AssetInfo{
+			Hash:             "", // No hash
+			WidgetType:       widget.WidgetType,
+			OriginalFilename: filename,
+			CanvasID:         canvas.ID,
+			CanvasName:       canvas.Name,
+			WidgetID:         widget.ID,
+			WidgetName:       name,
+		}
+		logger.Verbose("Found asset without hash for widget ID=%s, Type=%s - Filename: %s", widget.ID, widget.WidgetType, filename)
+	} else {
+		logger.Verbose("No hash or filename found for widget ID=%s, Type=%s - not a media asset", widget.ID, widget.WidgetType)
 	}
 
-	return &AssetInfo{
-		Hash:             hash,
-		WidgetType:       widget.WidgetType,
-		OriginalFilename: filename,
-		CanvasID:         canvas.ID,
-		CanvasName:       canvas.Name,
-		WidgetID:         widget.ID,
-		WidgetName:       name,
-	}
+	return assetWithHash, assetWithoutHash
 }
 
 

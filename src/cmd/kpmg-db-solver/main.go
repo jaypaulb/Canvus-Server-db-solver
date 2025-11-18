@@ -41,12 +41,6 @@ Key features:
 	Version: fmt.Sprintf("%s (built %s with %s)", version, buildTime, goVersion),
 }
 
-func init() {
-	rootCmd.AddCommand(discoverCmd)
-	rootCmd.AddCommand(restoreCmd)
-	rootCmd.AddCommand(reportCmd)
-	rootCmd.AddCommand(runCmd)
-}
 
 var discoverCmd = &cobra.Command{
 	Use:   "discover",
@@ -82,6 +76,31 @@ var runCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		runRunCommand()
 	},
+}
+
+var lookupHashCmd = &cobra.Command{
+	Use:   "lookup-hash",
+	Short: "Lookup hash values for assets without hash using database",
+	Long:  `Process assets that don't have hash values by querying the PostgreSQL database for hash information, then searching for files in assets folder and backup locations.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		runLookupHashCommand()
+	},
+}
+
+var (
+	dryRunFlag  bool
+	iniPathFlag string
+)
+
+func init() {
+	rootCmd.AddCommand(discoverCmd)
+	rootCmd.AddCommand(restoreCmd)
+	rootCmd.AddCommand(reportCmd)
+	rootCmd.AddCommand(runCmd)
+	rootCmd.AddCommand(lookupHashCmd)
+	
+	lookupHashCmd.Flags().BoolVar(&dryRunFlag, "dry-run", false, "Run in dry-run mode (no files will be restored)")
+	lookupHashCmd.Flags().StringVar(&iniPathFlag, "ini-path", "", "Path to mt-canvus-server.ini file (default: auto-detect)")
 }
 
 // Command implementations
@@ -172,6 +191,32 @@ func runRunCommand() {
 	err = runCmd.Execute(nil, nil)
 	if err != nil {
 		fmt.Printf("❌ Workflow failed: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runLookupHashCommand() {
+	fmt.Println("🔍 Hash Lookup for Assets Without Hash")
+	fmt.Println("======================================")
+	fmt.Println()
+
+	// Load or prompt for configuration
+	cfg, err := loadOrPromptConfig()
+	if err != nil {
+		fmt.Printf("❌ Configuration error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create and execute lookup-hash command
+	lookupCmd := commands.NewLookupHashCommand(cfg)
+	lookupCmd.SetDryRun(dryRunFlag)
+	if iniPathFlag != "" {
+		lookupCmd.SetINIPath(iniPathFlag)
+	}
+
+	err = lookupCmd.Execute(lookupHashCmd, nil)
+	if err != nil {
+		fmt.Printf("❌ Hash lookup failed: %v\n", err)
 		os.Exit(1)
 	}
 }

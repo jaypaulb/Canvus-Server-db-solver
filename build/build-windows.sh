@@ -16,7 +16,7 @@ echo "✅ Go version: $(go version)"
 
 # Set build parameters
 BUILD_TIME=$(date '+%Y-%m-%d %H:%M:%S')
-VERSION="1.0.0"
+VERSION="1.1.0"
 OUTPUT_DIR="bin"
 OUTPUT_FILE="kpmg-db-solver.exe"
 

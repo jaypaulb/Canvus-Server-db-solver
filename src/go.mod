@@ -3,6 +3,7 @@ module github.com/jaypaulb/kpmg-db-solver
 replace canvus-go-api => ./pkg/canvus
 
 require (
+	github.com/lib/pq v1.10.9
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.18.2
 	golang.org/x/term v0.19.0
