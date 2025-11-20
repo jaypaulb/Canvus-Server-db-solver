@@ -5,13 +5,13 @@
 
 # Build configuration
 BINARY_NAME=kpmg-db-solver
-VERSION=1.1.0
-BUILD_TIME=$(shell date '+%Y-%m-%d %H:%M:%S')
+VERSION=1.2.2
+BUILD_TIME=$(shell date '+%Y-%m-%d_%H:%M:%S')
 BUILD_DIR=../bin
 SRC_DIR=../src
 
 # Go build flags
-LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME) -w -s"
+LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME)"
 
 # Default target
 all: build
