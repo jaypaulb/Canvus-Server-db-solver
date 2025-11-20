@@ -26,7 +26,7 @@ func LoadDBConfigFromINI(iniPath string) (*DBConfig, error) {
 
 	// Default path if not provided
 	if iniPath == "" {
-		iniPath = `C:\ProgramData\MultiTaction\canvus\mt-canvus-server.ini`
+		iniPath = `C:\ProgramData\MultiTaction\Canvus\mt-canvus-server.ini`
 	}
 
 	// Check if file exists
@@ -72,7 +72,7 @@ func LoadDBConfigFromINI(iniPath string) (*DBConfig, error) {
 	}
 
 	if dbSection == nil {
-		return nil, fmt.Errorf("no database configuration section found in INI file")
+		return nil, fmt.Errorf("no database configuration section found in INI file: %s", iniPath)
 	}
 
 	// Read database configuration (try various key names)
@@ -118,13 +118,13 @@ func LoadDBConfigFromINI(iniPath string) (*DBConfig, error) {
 
 	// Validate required fields
 	if dbConfig.Host == "" {
-		return nil, fmt.Errorf("database host not found in INI file")
+		return nil, fmt.Errorf("database host not found in INI file: %s", iniPath)
 	}
 	if dbConfig.Database == "" {
-		return nil, fmt.Errorf("database name not found in INI file")
+		return nil, fmt.Errorf("database name not found in INI file: %s", iniPath)
 	}
 	if dbConfig.Username == "" {
-		return nil, fmt.Errorf("database username not found in INI file")
+		return nil, fmt.Errorf("database username not found in INI file: %s", iniPath)
 	}
 
 	logger.Verbose("Database configuration loaded: Host=%s, Port=%s, Database=%s, Username=%s",
@@ -153,8 +153,8 @@ func (c *DBConfig) GetConnectionString() string {
 // FindINIFile attempts to find the mt-canvus-server.ini file in common locations
 func FindINIFile() (string, error) {
 	commonPaths := []string{
-		`C:\ProgramData\MultiTaction\canvus\mt-canvus-server.ini`,
-		`C:\Program Files\MultiTaction\canvus\mt-canvus-server.ini`,
+		`C:\ProgramData\MultiTaction\Canvus\mt-canvus-server.ini`,
+		`C:\Program Files\MultiTaction\Canvus\mt-canvus-server.ini`,
 		`.\mt-canvus-server.ini`,
 		`mt-canvus-server.ini`,
 	}

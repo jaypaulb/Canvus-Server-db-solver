@@ -44,9 +44,62 @@ func (cmd *LookupHashCommand) Execute(cobraCmd *cobra.Command, args []string) er
 		logger.Info("🔍 DRY-RUN MODE: No files will be restored")
 	}
 
-	// Step 1: Discover assets (including those without hash)
+	// Step 1: Validate database configuration and connection BEFORE making API calls
 	logger.Info("")
-	logger.Info("📡 Step 1: Connecting to Canvus Server and discovering assets...")
+	logger.Info("✅ Step 1: Validating database configuration and connection...")
+
+	iniPath := cmd.iniPath
+	if iniPath == "" {
+		var err error
+		iniPath, err = database.FindINIFile()
+		if err != nil {
+			logger.Warn("Could not find INI file automatically: %v", err)
+			iniPath = `C:\ProgramData\MultiTaction\Canvus\mt-canvus-server.ini`
+			logger.Info("Using default path: %s", iniPath)
+		}
+	}
+
+	logger.Info("📄 Loading database configuration from: %s", iniPath)
+	dbConfig, err := database.LoadDBConfigFromINI(iniPath)
+	if err != nil {
+		logger.Error("Failed to load database configuration: %v", err)
+		logger.Error("Please ensure the INI file exists and contains the required database settings:")
+		logger.Error("  - host (or hostname, server)")
+		logger.Error("  - database (or dbname, name)")
+		logger.Error("  - username (or user)")
+		logger.Error("  - password (or pass) [optional]")
+		return fmt.Errorf("failed to load database configuration: %w", err)
+	}
+
+	logger.Info("🔌 Testing database connection...")
+	dbClient, err := database.NewClient(dbConfig)
+	if err != nil {
+		logger.Error("Failed to connect to database: %v", err)
+		logger.Error("Database connection details:")
+		logger.Error("  Host: %s", dbConfig.Host)
+		logger.Error("  Port: %s", dbConfig.Port)
+		logger.Error("  Database: %s", dbConfig.Database)
+		logger.Error("  Username: %s", dbConfig.Username)
+		logger.Error("Please verify that:")
+		logger.Error("  1. The database server is running and accessible")
+		logger.Error("  2. The credentials are correct")
+		logger.Error("  3. The database exists")
+		logger.Error("  4. Network connectivity is available")
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+	logger.Info("✅ Database connection successful!")
+
+	// Keep connection open for later use
+	defer dbClient.Close()
+
+	// Step 2: Validate Canvus Server configuration
+	logger.Info("")
+	logger.Info("✅ Step 2: Validating Canvus Server configuration...")
+
+	if cmd.config.CanvusServer.Username == "" || cmd.config.CanvusServer.Password == "" {
+		logger.Error("Canvus Server credentials not configured")
+		return fmt.Errorf("canvus Server credentials not configured in config.yaml")
+	}
 
 	ctx := context.Background()
 	var session *canvussdk.Session
@@ -56,13 +109,50 @@ func (cmd *LookupHashCommand) Execute(cobraCmd *cobra.Command, args []string) er
 		session = canvussdk.NewSession(cmd.config.GetCanvusAPIURL())
 	}
 
-	logger.Info("🔐 Authenticating with Canvus Server...")
-	err := session.Login(ctx, cmd.config.CanvusServer.Username, cmd.config.CanvusServer.Password)
+	logger.Info("🔐 Testing Canvus Server authentication...")
+	err = session.Login(ctx, cmd.config.CanvusServer.Username, cmd.config.CanvusServer.Password)
 	if err != nil {
 		logger.Error("Authentication failed: %v", err)
+		logger.Error("Please verify that:")
+		logger.Error("  1. The Canvus Server URL is correct: %s", cmd.config.GetCanvusAPIURL())
+		logger.Error("  2. The username and password are correct")
+		logger.Error("  3. The Canvus Server is running and accessible")
 		return fmt.Errorf("authentication failed: %w", err)
 	}
+	logger.Info("✅ Canvus Server authentication successful!")
 	defer session.Logout(ctx)
+
+	// Step 3: Validate file system paths
+	logger.Info("")
+	logger.Info("✅ Step 3: Validating file system paths...")
+
+	assetsFolder := cmd.config.Paths.AssetsFolder
+	backupRootFolder := cmd.config.Paths.BackupRootFolder
+
+	if assetsFolder == "" {
+		logger.Error("Assets folder not configured in config.yaml")
+		return fmt.Errorf("assets folder not configured")
+	}
+	if _, err := os.Stat(assetsFolder); os.IsNotExist(err) {
+		logger.Error("Assets folder does not exist: %s", assetsFolder)
+		return fmt.Errorf("assets folder does not exist: %s", assetsFolder)
+	}
+	logger.Info("✅ Assets folder accessible: %s", assetsFolder)
+
+	if backupRootFolder == "" {
+		logger.Error("Backup root folder not configured in config.yaml")
+		return fmt.Errorf("backup root folder not configured")
+	}
+	if _, err := os.Stat(backupRootFolder); os.IsNotExist(err) {
+		logger.Error("Backup root folder does not exist: %s", backupRootFolder)
+		return fmt.Errorf("backup root folder does not exist: %s", backupRootFolder)
+	}
+	logger.Info("✅ Backup root folder accessible: %s", backupRootFolder)
+
+	// Step 4: Discover assets (including those without hash)
+	logger.Info("")
+	logger.Info("📡 Step 4: Discovering assets from Canvus Server...")
+	logger.Info("⏳ This may take some time for large deployments...")
 
 	// Discover assets
 	discoveryResult, err := canvus.DiscoverAllAssets(session, cmd.config.Performance.MaxConcurrentAPI)
@@ -78,45 +168,11 @@ func (cmd *LookupHashCommand) Execute(cobraCmd *cobra.Command, args []string) er
 		return nil
 	}
 
-	// Step 2: Load database configuration
+	// Step 5: Process each asset without hash
 	logger.Info("")
-	logger.Info("💾 Step 2: Loading database configuration...")
-
-	iniPath := cmd.iniPath
-	if iniPath == "" {
-		var err error
-		iniPath, err = database.FindINIFile()
-		if err != nil {
-			logger.Warn("Could not find INI file automatically: %v", err)
-			iniPath = `C:\ProgramData\MultiTaction\canvus\mt-canvus-server.ini`
-			logger.Info("Using default path: %s", iniPath)
-		}
-	}
-
-	dbConfig, err := database.LoadDBConfigFromINI(iniPath)
-	if err != nil {
-		logger.Error("Failed to load database configuration: %v", err)
-		return fmt.Errorf("failed to load database configuration: %w", err)
-	}
-
-	// Step 3: Connect to database
-	logger.Info("")
-	logger.Info("🔌 Step 3: Connecting to PostgreSQL database...")
-
-	dbClient, err := database.NewClient(dbConfig)
-	if err != nil {
-		logger.Error("Failed to connect to database: %v", err)
-		return fmt.Errorf("failed to connect to database: %w", err)
-	}
-	defer dbClient.Close()
-
-	// Step 4: Process each asset without hash
-	logger.Info("")
-	logger.Info("🔍 Step 4: Processing assets without hash...")
+	logger.Info("🔍 Step 5: Processing assets without hash...")
 
 	results := make([]HashLookupResult, 0)
-	assetsFolder := cmd.config.Paths.AssetsFolder
-	backupRootFolder := cmd.config.Paths.BackupRootFolder
 
 	for i, asset := range discoveryResult.AssetsWithoutHash {
 		if asset.OriginalFilename == "" {
@@ -131,9 +187,9 @@ func (cmd *LookupHashCommand) Execute(cobraCmd *cobra.Command, args []string) er
 		results = append(results, result)
 	}
 
-	// Step 5: Generate report
+	// Step 6: Generate report
 	logger.Info("")
-	logger.Info("📋 Step 5: Generating report...")
+	logger.Info("📋 Step 6: Generating report...")
 
 	err = cmd.generateReport(results)
 	if err != nil {
@@ -141,9 +197,9 @@ func (cmd *LookupHashCommand) Execute(cobraCmd *cobra.Command, args []string) er
 		return fmt.Errorf("failed to generate report: %w", err)
 	}
 
-	// Step 6: Summary
+	// Step 7: Summary
 	logger.Info("")
-	logger.Info("📊 Step 6: Summary")
+	logger.Info("📊 Step 7: Summary")
 	logger.Info("========================================")
 	logger.Info("📈 Total assets without hash: %d", len(discoveryResult.AssetsWithoutHash))
 	logger.Info("🔍 Processed: %d", len(results))
