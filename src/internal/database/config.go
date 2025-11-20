@@ -47,8 +47,8 @@ func LoadDBConfigFromINI(iniPath string) (*DBConfig, error) {
 		SSLMode: "disable", // Default SSL mode
 	}
 
-	// Try different section names
-	sections := []string{"database", "postgresql", "db", "Database", "PostgreSQL", "DB"}
+	// Try different section names (including 'sql' for Canvus INI format)
+	sections := []string{"sql", "database", "postgresql", "db", "Database", "PostgreSQL", "DB", "SQL"}
 	var dbSection *ini.Section
 
 	for _, sectionName := range sections {
@@ -92,6 +92,8 @@ func LoadDBConfigFromINI(iniPath string) (*DBConfig, error) {
 
 	if dbSection.HasKey("database") {
 		dbConfig.Database = dbSection.Key("database").String()
+	} else if dbSection.HasKey("databasename") {
+		dbConfig.Database = dbSection.Key("databasename").String()
 	} else if dbSection.HasKey("dbname") {
 		dbConfig.Database = dbSection.Key("dbname").String()
 	} else if dbSection.HasKey("name") {
@@ -116,9 +118,11 @@ func LoadDBConfigFromINI(iniPath string) (*DBConfig, error) {
 		dbConfig.SSLMode = dbSection.Key("ssl_mode").String()
 	}
 
-	// Validate required fields
+	// Validate required fields and set defaults
 	if dbConfig.Host == "" {
-		return nil, fmt.Errorf("database host not found in INI file: %s", iniPath)
+		// Default to localhost if not specified (common for Canvus INI files)
+		dbConfig.Host = "localhost"
+		logger.Verbose("Database host not specified in INI, defaulting to: localhost")
 	}
 	if dbConfig.Database == "" {
 		return nil, fmt.Errorf("database name not found in INI file: %s", iniPath)
