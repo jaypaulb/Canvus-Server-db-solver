@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -21,9 +22,10 @@ import (
 
 // LookupHashCommand handles the lookup-hash command for processing items without hash
 type LookupHashCommand struct {
-	config  *config.Config
-	dryRun  bool
-	iniPath string
+	config       *config.Config
+	dryRun       bool
+	iniPath      string
+	skipArchived bool
 }
 
 // NewLookupHashCommand creates a new lookup-hash command
@@ -154,8 +156,11 @@ func (cmd *LookupHashCommand) Execute(cobraCmd *cobra.Command, args []string) er
 	logger.Info("📡 Step 4: Discovering assets from Canvus Server...")
 	logger.Info("⏳ This may take some time for large deployments...")
 
-	// Discover assets
-	discoveryResult, err := canvus.DiscoverAllAssets(session, cmd.config.Performance.MaxConcurrentAPI)
+	// Discover assets with options
+	discoveryOptions := canvus.DiscoveryOptions{
+		SkipArchived: cmd.skipArchived,
+	}
+	discoveryResult, err := canvus.DiscoverAllAssetsWithOptions(session, cmd.config.Performance.MaxConcurrentAPI, discoveryOptions)
 	if err != nil {
 		logger.Error("Asset discovery failed: %v", err)
 		return fmt.Errorf("asset discovery failed: %w", err)
@@ -168,28 +173,127 @@ func (cmd *LookupHashCommand) Execute(cobraCmd *cobra.Command, args []string) er
 		return nil
 	}
 
-	// Step 5: Process each asset without hash
+	// Step 5: Build hash catalogs for assets and backup folders
 	logger.Info("")
-	logger.Info("🔍 Step 5: Processing assets without hash...")
+	logger.Info("📂 Step 5: Building hash catalogs for fast lookups...")
+	logger.Info("⏳ Scanning filesystem once instead of %d times...", len(discoveryResult.AssetsWithoutHash))
 
-	results := make([]HashLookupResult, 0)
+	// Build assets folder catalog
+	assetsCatalog := filesystem.NewHashCatalog()
+	err = assetsCatalog.BuildCatalogFromFolder(assetsFolder)
+	if err != nil {
+		logger.Warn("Failed to build assets catalog: %v", err)
+		logger.Warn("Continuing without assets catalog...")
+	}
 
-	for i, asset := range discoveryResult.AssetsWithoutHash {
+	// Build backup folder catalog
+	backupCatalog := filesystem.NewHashCatalog()
+	err = backupCatalog.BuildCatalogFromFolder(backupRootFolder)
+	if err != nil {
+		logger.Warn("Failed to build backup catalog: %v", err)
+		logger.Warn("Continuing without backup catalog...")
+	}
+
+	logger.Info("✅ Hash catalogs ready:")
+	logger.Info("   📁 Assets folder: %d unique hashes", assetsCatalog.Size())
+	logger.Info("   💾 Backup folder: %d unique hashes", backupCatalog.Size())
+
+	// Step 6: Batch load all database records
+	logger.Info("")
+	logger.Info("🗄️  Step 6: Loading database records into memory...")
+
+	dbCatalog := make(map[string]database.AssetFileRecord)
+	for _, asset := range discoveryResult.AssetsWithoutHash {
 		if asset.OriginalFilename == "" {
-			logger.Verbose("Skipping asset %d: no original filename", i+1)
 			continue
 		}
 
-		logger.Info("Processing %d/%d: %s (Canvas: %s)", i+1, len(discoveryResult.AssetsWithoutHash),
-			asset.OriginalFilename, asset.CanvasName)
-
-		result := cmd.processAssetWithoutHash(dbClient, asset, assetsFolder, backupRootFolder)
-		results = append(results, result)
+		// Try to find in database if not already loaded
+		if _, exists := dbCatalog[asset.OriginalFilename]; !exists {
+			records, err := dbClient.FindAssetByOriginalFilename(asset.OriginalFilename)
+			if err != nil || len(records) == 0 {
+				// Try case-insensitive
+				records, err = dbClient.FindAssetByOriginalFilenameCaseInsensitive(asset.OriginalFilename)
+			}
+			if err == nil && len(records) > 0 {
+				dbCatalog[asset.OriginalFilename] = records[0]
+			}
+		}
 	}
 
-	// Step 6: Generate report
+	logger.Info("✅ Database catalog ready: %d records loaded", len(dbCatalog))
+
+	// Step 7: Deduplicate assets by Canvas+Filename combination
 	logger.Info("")
-	logger.Info("📋 Step 6: Generating report...")
+	logger.Info("🔍 Step 7: Deduplicating assets by canvas and filename...")
+
+	// Group assets by (CanvasName, OriginalFilename) tuple
+	type AssetKey struct {
+		CanvasName       string
+		OriginalFilename string
+	}
+
+	uniqueAssets := make(map[AssetKey][]canvus.AssetInfo)
+	skippedCount := 0
+
+	for _, asset := range discoveryResult.AssetsWithoutHash {
+		if asset.OriginalFilename == "" {
+			skippedCount++
+			continue
+		}
+
+		key := AssetKey{
+			CanvasName:       asset.CanvasName,
+			OriginalFilename: asset.OriginalFilename,
+		}
+		uniqueAssets[key] = append(uniqueAssets[key], asset)
+	}
+
+	// Create list of unique assets (one per group)
+	uniqueAssetsList := make([]canvus.AssetInfo, 0, len(uniqueAssets))
+	assetGroups := make(map[AssetKey][]canvus.AssetInfo)
+
+	for key, group := range uniqueAssets {
+		uniqueAssetsList = append(uniqueAssetsList, group[0]) // Use first instance as representative
+		assetGroups[key] = group
+	}
+
+	logger.Info("📊 Deduplicated: %d unique files from %d total widget instances", len(uniqueAssetsList), len(discoveryResult.AssetsWithoutHash))
+	logger.Info("   Skipped: %d assets without filenames", skippedCount)
+	logger.Info("")
+	logger.Info("⚡ Processing %d unique files using %d workers...", len(uniqueAssetsList), cmd.config.Performance.MaxConcurrentAPI)
+
+	// Process unique assets in parallel
+	uniqueResults := cmd.processAssetsParallel(uniqueAssetsList, dbCatalog, assetsCatalog, backupCatalog)
+
+	// Expand results back to all instances
+	results := make([]HashLookupResult, 0, len(discoveryResult.AssetsWithoutHash))
+	for _, uniqueAsset := range uniqueAssetsList {
+		key := AssetKey{
+			CanvasName:       uniqueAsset.CanvasName,
+			OriginalFilename: uniqueAsset.OriginalFilename,
+		}
+
+		// Find the result for this unique asset
+		var uniqueResult HashLookupResult
+		for _, r := range uniqueResults {
+			if r.Asset.CanvasName == uniqueAsset.CanvasName && r.Asset.OriginalFilename == uniqueAsset.OriginalFilename {
+				uniqueResult = r
+				break
+			}
+		}
+
+		// Replicate result for all instances in this group
+		for _, instance := range assetGroups[key] {
+			instanceResult := uniqueResult
+			instanceResult.Asset = instance // Preserve original widget IDs
+			results = append(results, instanceResult)
+		}
+	}
+
+	// Step 8: Generate report
+	logger.Info("")
+	logger.Info("📋 Step 8: Generating report...")
 
 	err = cmd.generateReport(results)
 	if err != nil {
@@ -197,37 +301,51 @@ func (cmd *LookupHashCommand) Execute(cobraCmd *cobra.Command, args []string) er
 		return fmt.Errorf("failed to generate report: %w", err)
 	}
 
-	// Step 7: Summary
+	// Step 9: Summary with unique file counts
 	logger.Info("")
-	logger.Info("📊 Step 7: Summary")
+	logger.Info("📊 Step 9: Summary")
 	logger.Info("========================================")
-	logger.Info("📈 Total assets without hash: %d", len(discoveryResult.AssetsWithoutHash))
-	logger.Info("🔍 Processed: %d", len(results))
 
-	foundInDB := 0
-	foundInAssets := 0
-	foundInBackup := 0
-	notFound := 0
+	// Count unique files and total instances
+	uniqueFoundInDB := make(map[AssetKey]bool)
+	uniqueFoundInAssets := make(map[AssetKey]bool)
+	uniqueFoundInBackup := make(map[AssetKey]bool)
+	uniqueNotFound := make(map[AssetKey]bool)
+
+	foundInDBInstances := 0
+	foundInAssetsInstances := 0
+	foundInBackupInstances := 0
+	notFoundInstances := 0
 
 	for _, result := range results {
+		key := AssetKey{
+			CanvasName:       result.Asset.CanvasName,
+			OriginalFilename: result.Asset.OriginalFilename,
+		}
+
 		if result.FoundInDatabase {
-			foundInDB++
+			uniqueFoundInDB[key] = true
+			foundInDBInstances++
 		}
 		if result.FoundInAssetsFolder {
-			foundInAssets++
+			uniqueFoundInAssets[key] = true
+			foundInAssetsInstances++
 		}
 		if result.FoundInBackup {
-			foundInBackup++
+			uniqueFoundInBackup[key] = true
+			foundInBackupInstances++
 		}
 		if !result.FoundInDatabase && !result.FoundInAssetsFolder && !result.FoundInBackup {
-			notFound++
+			uniqueNotFound[key] = true
+			notFoundInstances++
 		}
 	}
 
-	logger.Info("✅ Found in database: %d", foundInDB)
-	logger.Info("✅ Found in assets folder: %d", foundInAssets)
-	logger.Info("✅ Found in backup: %d", foundInBackup)
-	logger.Info("❌ Not found: %d", notFound)
+	logger.Info("📈 Total: %d widget instances across %d unique files", len(results), len(uniqueAssetsList))
+	logger.Info("✅ Found in database: %d unique files", len(uniqueFoundInDB))
+	logger.Info("✅ Found in assets folder: %d unique files (%d instances)", len(uniqueFoundInAssets), foundInAssetsInstances)
+	logger.Info("✅ Found in backup: %d unique files (%d instances)", len(uniqueFoundInBackup), foundInBackupInstances)
+	logger.Info("❌ Not found: %d unique files (%d instances)", len(uniqueNotFound), notFoundInstances)
 
 	return nil
 }
@@ -245,7 +363,152 @@ type HashLookupResult struct {
 	Error              string
 }
 
+// processAssetsParallel processes multiple assets in parallel using a worker pool
+func (cmd *LookupHashCommand) processAssetsParallel(
+	assets []canvus.AssetInfo,
+	dbCatalog map[string]database.AssetFileRecord,
+	assetsCatalog *filesystem.HashCatalog,
+	backupCatalog *filesystem.HashCatalog,
+) []HashLookupResult {
+	logger := logging.GetLogger()
+	numWorkers := cmd.config.Performance.MaxConcurrentAPI
+	if numWorkers <= 0 {
+		numWorkers = 4 // Default to 4 workers
+	}
+
+	results := make([]HashLookupResult, len(assets))
+
+	// Create work channel and wait group
+	workChan := make(chan int, len(assets))
+	var wg sync.WaitGroup
+	var progressMutex sync.Mutex
+	processedCount := 0
+
+	// Start worker goroutines
+	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range workChan {
+				asset := assets[i]
+
+				// Update progress counter
+				progressMutex.Lock()
+				processedCount++
+				currentProgress := processedCount
+				progressMutex.Unlock()
+
+				// Log progress every 100 files or first file
+				if currentProgress%100 == 0 || currentProgress == 1 {
+					logger.Info("")
+					logger.Info("═══ Progress: %d/%d unique files processed ═══", currentProgress, len(assets))
+					logger.Info("")
+				}
+
+				result := cmd.processAssetWithCatalogs(asset, dbCatalog, assetsCatalog, backupCatalog)
+				results[i] = result
+			}
+		}()
+	}
+
+	// Send work to workers
+	for i := range assets {
+		workChan <- i
+	}
+	close(workChan)
+
+	// Wait for all workers to finish
+	wg.Wait()
+
+	logger.Info("✅ Completed processing %d assets", len(assets))
+	return results
+}
+
+// processAssetWithCatalogs processes a single asset using pre-built hash catalogs
+// This is much faster than processAssetWithoutHash because it uses O(1) hash lookups
+// instead of O(n) filesystem walks
+func (cmd *LookupHashCommand) processAssetWithCatalogs(
+	asset canvus.AssetInfo,
+	dbCatalog map[string]database.AssetFileRecord,
+	assetsCatalog *filesystem.HashCatalog,
+	backupCatalog *filesystem.HashCatalog,
+) HashLookupResult {
+	logger := logging.GetLogger()
+	result := HashLookupResult{
+		Asset: asset,
+	}
+
+	// Step 1: Lookup in database catalog (O(1))
+	dbRecord, foundInDB := dbCatalog[asset.OriginalFilename]
+	if !foundInDB {
+		result.Error = "Not found in database"
+		logger.Info("Database: '%s' on canvas '%s' → Not Found", asset.OriginalFilename, asset.CanvasName)
+		return result
+	}
+
+	result.FoundInDatabase = true
+	result.PublicHash = dbRecord.PublicHash
+	result.PrivateHash = dbRecord.PrivateHash
+
+	// Get last 4 chars of public hash for logging
+	hashSuffix := "N/A"
+	if len(dbRecord.PublicHash) >= 4 {
+		hashSuffix = dbRecord.PublicHash[len(dbRecord.PublicHash)-4:]
+	}
+
+	logger.Info("Database: '%s' on canvas '%s' → hash=[...%s]", asset.OriginalFilename, asset.CanvasName, hashSuffix)
+
+	// Step 2: Lookup in assets catalog (O(1))
+	if dbRecord.PrivateHash != "" {
+		if entry, found := assetsCatalog.Lookup(dbRecord.PrivateHash); found {
+			result.FoundInAssetsFolder = true
+			result.AssetsFolderPath = entry.FilePath
+			logger.Info("Assets folder: '%s' hash=[...%s] in '%s' → Found",
+				asset.OriginalFilename, hashSuffix, cmd.config.Paths.AssetsFolder)
+			return result // Found, no need to check backup
+		}
+
+		logger.Info("Assets folder: '%s' hash=[...%s] in '%s' → Not Found",
+			asset.OriginalFilename, hashSuffix, cmd.config.Paths.AssetsFolder)
+
+		// Step 3: Lookup in backup catalog (O(1))
+		if entry, found := backupCatalog.Lookup(dbRecord.PrivateHash); found {
+			result.FoundInBackup = true
+			result.BackupPath = entry.FilePath
+
+			// Calculate target path
+			targetPath := cmd.getTargetPathFromHash(dbRecord.PrivateHash, entry.Extension)
+
+			if cmd.dryRun {
+				logger.Info("Backup folder: '%s' hash=[...%s] in '%s' → Found at '%s' | Restoring: Skipped (Dry-Run) → Target: '%s'",
+					asset.OriginalFilename, hashSuffix, cmd.config.Paths.BackupRootFolder,
+					entry.FilePath, targetPath)
+			} else {
+				logger.Info("Backup folder: '%s' hash=[...%s] in '%s' → Found at '%s' | Restoring: Active → Target: '%s'",
+					asset.OriginalFilename, hashSuffix, cmd.config.Paths.BackupRootFolder,
+					entry.FilePath, targetPath)
+				// TODO: Implement actual restore logic
+			}
+		} else {
+			logger.Info("Backup folder: '%s' hash=[...%s] in '%s' → Not Found",
+				asset.OriginalFilename, hashSuffix, cmd.config.Paths.BackupRootFolder)
+		}
+	}
+
+	return result
+}
+
+// getTargetPathFromHash calculates the target path for restoring a file based on its hash
+func (cmd *LookupHashCommand) getTargetPathFromHash(hash string, extension string) string {
+	if len(hash) >= 2 {
+		subfolder := hash[:2]
+		return filepath.Join(cmd.config.Paths.AssetsFolder, subfolder, hash+extension)
+	}
+	return filepath.Join(cmd.config.Paths.AssetsFolder, hash+extension)
+}
+
 // processAssetWithoutHash processes a single asset without hash
+// DEPRECATED: Use processAssetWithCatalogs for much better performance
 func (cmd *LookupHashCommand) processAssetWithoutHash(
 	dbClient *database.Client,
 	asset canvus.AssetInfo,
@@ -351,7 +614,8 @@ func (cmd *LookupHashCommand) getTargetPath(assetsFolder string, hash string, ba
 func (cmd *LookupHashCommand) generateReport(results []HashLookupResult) error {
 	logger := logging.GetLogger()
 
-	reportPath := filepath.Join(cmd.config.Paths.OutputFolder, "hash_lookup_report.txt")
+	// Save report in current working directory (where exe is being run from)
+	reportPath := "hash_lookup_report.txt"
 	content := "KPMG DB Solver - Hash Lookup Report (Assets Without Hash)\n"
 	content += strings.Repeat("=", 60) + "\n"
 	content += fmt.Sprintf("Generated: %s\n", time.Now().Format("2006-01-02 15:04:05"))
@@ -415,5 +679,10 @@ func (cmd *LookupHashCommand) SetDryRun(dryRun bool) {
 // SetINIPath sets the INI file path
 func (cmd *LookupHashCommand) SetINIPath(iniPath string) {
 	cmd.iniPath = iniPath
+}
+
+// SetSkipArchived sets the skip-archived flag
+func (cmd *LookupHashCommand) SetSkipArchived(skipArchived bool) {
+	cmd.skipArchived = skipArchived
 }
 

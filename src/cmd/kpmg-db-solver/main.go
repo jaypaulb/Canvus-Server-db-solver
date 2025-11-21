@@ -88,8 +88,9 @@ var lookupHashCmd = &cobra.Command{
 }
 
 var (
-	dryRunFlag  bool
-	iniPathFlag string
+	dryRunFlag       bool
+	iniPathFlag      string
+	skipArchivedFlag bool
 )
 
 func init() {
@@ -98,9 +99,10 @@ func init() {
 	rootCmd.AddCommand(reportCmd)
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(lookupHashCmd)
-	
+
 	lookupHashCmd.Flags().BoolVar(&dryRunFlag, "dry-run", false, "Run in dry-run mode (no files will be restored)")
 	lookupHashCmd.Flags().StringVar(&iniPathFlag, "ini-path", "", "Path to mt-canvus-server.ini file (default: auto-detect)")
+	lookupHashCmd.Flags().BoolVar(&skipArchivedFlag, "skip-archived", true, "Skip archived canvases during discovery (default: true)")
 }
 
 // Command implementations
@@ -210,11 +212,12 @@ func runLookupHashCommand() {
 	// Create and execute lookup-hash command
 	lookupCmd := commands.NewLookupHashCommand(cfg)
 	lookupCmd.SetDryRun(dryRunFlag)
+	lookupCmd.SetSkipArchived(skipArchivedFlag)
 	if iniPathFlag != "" {
 		lookupCmd.SetINIPath(iniPathFlag)
 	}
 
-	err = lookupCmd.Execute(lookupHashCmd, nil)
+	err = lookupCmd.Execute(nil, nil)
 	if err != nil {
 		fmt.Printf("❌ Hash lookup failed: %v\n", err)
 		os.Exit(1)

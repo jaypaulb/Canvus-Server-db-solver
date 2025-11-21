@@ -81,8 +81,18 @@ func (rl *RateLimiter) Wait() {
 	<-rl.requests
 }
 
+// DiscoveryOptions contains options for asset discovery
+type DiscoveryOptions struct {
+	SkipArchived bool
+}
+
 // DiscoverAllAssets discovers all media assets across all canvases using the existing SDK
 func DiscoverAllAssets(session *canvussdk.Session, requestsPerSecond int) (*DiscoveryResult, error) {
+	return DiscoverAllAssetsWithOptions(session, requestsPerSecond, DiscoveryOptions{})
+}
+
+// DiscoverAllAssetsWithOptions discovers all media assets with custom options
+func DiscoverAllAssetsWithOptions(session *canvussdk.Session, requestsPerSecond int, options DiscoveryOptions) (*DiscoveryResult, error) {
 	startTime := time.Now()
 	result := &DiscoveryResult{
 		StartTime: startTime,
@@ -93,11 +103,28 @@ func DiscoverAllAssets(session *canvussdk.Session, requestsPerSecond int) (*Disc
 	}
 
 	ctx := context.Background()
+	logger := logging.GetLogger()
 
 	// Get all canvases using the existing SDK
-	canvases, err := session.ListCanvases(ctx, nil)
+	allCanvases, err := session.ListCanvases(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get canvases: %w", err)
+	}
+
+	// Filter out archived/trashed canvases if requested
+	canvases := allCanvases
+	if options.SkipArchived {
+		activeCanvases := make([]canvussdk.Canvas, 0)
+		trashedCount := 0
+		for _, canvas := range allCanvases {
+			if canvas.InTrash {
+				trashedCount++
+				continue
+			}
+			activeCanvases = append(activeCanvases, canvas)
+		}
+		canvases = activeCanvases
+		logger.Info("📋 Filtered canvases: %d active, %d in trash (skipped)", len(canvases), trashedCount)
 	}
 
 	result.Canvases = canvases
@@ -140,7 +167,6 @@ func DiscoverAllAssets(session *canvussdk.Session, requestsPerSecond int) (*Disc
 	result.Duration = result.EndTime.Sub(result.StartTime)
 
 	// Validate assets on the server
-	logger := logging.GetLogger()
 	logger.Info("🔍 Validating assets on Canvus Server...")
 	validationResult, err := validateAssetsOnServer(ctx, session, result.Assets)
 	if err != nil {
@@ -167,7 +193,7 @@ func extractMediaAssets(ctx context.Context, session *canvussdk.Session, canvas 
 	widgets, err := session.ListWidgets(ctx, canvas.ID, nil)
 	if err != nil {
 		logger.Error("Failed to get widgets for canvas '%s' (ID: %s): %v", canvas.Name, canvas.ID, err)
-		return assets // Return empty slice if we can't get widgets
+		return assets, assetsWithoutHash // Return empty slice if we can't get widgets
 	}
 
 	logger.Verbose("Found %d widgets in canvas '%s' (ID: %s)", len(widgets), canvas.Name, canvas.ID)
@@ -198,7 +224,7 @@ func extractMediaAssets(ctx context.Context, session *canvussdk.Session, canvas 
 		}
 	}
 
-	logger.Verbose("Extracted %d media assets (with hash) and %d media assets (without hash) from canvas '%s' (ID: %s)", 
+	logger.Verbose("Extracted %d media assets (with hash) and %d media assets (without hash) from canvas '%s' (ID: %s)",
 		mediaCount, mediaCountNoHash, canvas.Name, canvas.ID)
 	return assets, assetsWithoutHash
 }
@@ -215,7 +241,7 @@ func extractBackgroundAssets(ctx context.Context, session *canvussdk.Session, ca
 	background, err := session.GetCanvasBackground(ctx, canvas.ID)
 	if err != nil {
 		logger.Verbose("Failed to get background for canvas '%s' (ID: %s): %v", canvas.Name, canvas.ID, err)
-		return assets // Return empty slice if we can't get background
+		return assets, assetsWithoutHash // Return empty slice if we can't get background
 	}
 
 	// Check if background has an image with a hash
@@ -315,12 +341,12 @@ func extractAssetFromWidget(ctx context.Context, session *canvussdk.Session, can
 		widgetDetails, err = session.GetVideo(ctx, canvas.ID, widget.ID)
 	default:
 		logger.Verbose("Skipping non-media widget type: %s", widget.WidgetType)
-		return nil // Not a media widget type
+		return nil, nil // Not a media widget type
 	}
 
 	if err != nil {
 		logger.Verbose("Failed to get widget details for ID=%s, Type=%s: %v", widget.ID, widget.WidgetType, err)
-		return nil
+		return nil, nil
 	}
 
 	// Extract hash and other fields using reflection

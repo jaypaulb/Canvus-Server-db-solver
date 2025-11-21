@@ -3,14 +3,15 @@ module github.com/jaypaulb/kpmg-db-solver
 replace canvus-go-api => ./pkg/canvus
 
 require (
+	canvus-go-api v0.0.0-00010101000000-000000000000
 	github.com/lib/pq v1.10.9
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.18.2
 	golang.org/x/term v0.19.0
+	gopkg.in/ini.v1 v1.67.0
 )
 
 require (
-	canvus-go-api v0.0.0-00010101000000-000000000000 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
@@ -29,7 +30,6 @@ require (
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9 // indirect
 	golang.org/x/sys v0.19.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
-	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
