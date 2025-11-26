@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"gopkg.in/ini.v1"
@@ -20,13 +21,22 @@ type DBConfig struct {
 	SSLMode  string
 }
 
+// getDefaultINIPath returns the default INI path based on the operating system
+func getDefaultINIPath() string {
+	if runtime.GOOS == "linux" {
+		return "/etc/MultiTaction/canvus/mt-canvus-server.ini"
+	}
+	// Windows default
+	return `C:\ProgramData\MultiTaction\Canvus\mt-canvus-server.ini`
+}
+
 // LoadDBConfigFromINI loads database configuration from mt-canvus-server.ini
 func LoadDBConfigFromINI(iniPath string) (*DBConfig, error) {
 	logger := logging.GetLogger()
 
 	// Default path if not provided
 	if iniPath == "" {
-		iniPath = `C:\ProgramData\MultiTaction\Canvus\mt-canvus-server.ini`
+		iniPath = getDefaultINIPath()
 	}
 
 	// Check if file exists
@@ -156,11 +166,24 @@ func (c *DBConfig) GetConnectionString() string {
 
 // FindINIFile attempts to find the mt-canvus-server.ini file in common locations
 func FindINIFile() (string, error) {
-	commonPaths := []string{
-		`C:\ProgramData\MultiTaction\Canvus\mt-canvus-server.ini`,
-		`C:\Program Files\MultiTaction\Canvus\mt-canvus-server.ini`,
-		`.\mt-canvus-server.ini`,
-		`mt-canvus-server.ini`,
+	var commonPaths []string
+
+	if runtime.GOOS == "linux" {
+		commonPaths = []string{
+			"/etc/MultiTaction/canvus/mt-canvus-server.ini",
+			"/etc/multitaction/canvus/mt-canvus-server.ini",
+			"/opt/MultiTaction/canvus/mt-canvus-server.ini",
+			"./mt-canvus-server.ini",
+			"mt-canvus-server.ini",
+		}
+	} else {
+		// Windows paths
+		commonPaths = []string{
+			`C:\ProgramData\MultiTaction\Canvus\mt-canvus-server.ini`,
+			`C:\Program Files\MultiTaction\Canvus\mt-canvus-server.ini`,
+			`.\mt-canvus-server.ini`,
+			`mt-canvus-server.ini`,
+		}
 	}
 
 	for _, path := range commonPaths {
