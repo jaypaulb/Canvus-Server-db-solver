@@ -116,15 +116,22 @@ func DiscoverAllAssetsWithOptions(session *canvussdk.Session, requestsPerSecond 
 	if options.SkipArchived {
 		activeCanvases := make([]canvussdk.Canvas, 0)
 		trashedCount := 0
+		archivedCount := 0
 		for _, canvas := range allCanvases {
+			// Skip canvases in trash
 			if canvas.InTrash {
 				trashedCount++
+				continue
+			}
+			// Skip archived canvases (state = "archived" or similar)
+			if canvas.State == "archived" || canvas.State == "Archived" {
+				archivedCount++
 				continue
 			}
 			activeCanvases = append(activeCanvases, canvas)
 		}
 		canvases = activeCanvases
-		logger.Info("📋 Filtered canvases: %d active, %d in trash (skipped)", len(canvases), trashedCount)
+		logger.Info("📋 Filtered canvases: %d active, %d in trash (skipped), %d archived (skipped)", len(canvases), trashedCount, archivedCount)
 	}
 
 	result.Canvases = canvases
