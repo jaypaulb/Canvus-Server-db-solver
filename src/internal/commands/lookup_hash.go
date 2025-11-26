@@ -26,6 +26,7 @@ type LookupHashCommand struct {
 	dryRun       bool
 	iniPath      string
 	skipArchived bool
+	lowMemory    bool // Low memory mode - skip catalog building, search on demand
 }
 
 // NewLookupHashCommand creates a new lookup-hash command
@@ -173,30 +174,39 @@ func (cmd *LookupHashCommand) Execute(cobraCmd *cobra.Command, args []string) er
 		return nil
 	}
 
-	// Step 5: Build hash catalogs for assets and backup folders
-	logger.Info("")
-	logger.Info("📂 Step 5: Building hash catalogs for fast lookups...")
-	logger.Info("⏳ Scanning filesystem once instead of %d times...", len(discoveryResult.AssetsWithoutHash))
+	// Step 5: Build hash catalogs for assets and backup folders (skip in low-memory mode)
+	var assetsCatalog *filesystem.HashCatalog
+	var backupCatalog *filesystem.HashCatalog
 
-	// Build assets folder catalog
-	assetsCatalog := filesystem.NewHashCatalog()
-	err = assetsCatalog.BuildCatalogFromFolder(assetsFolder)
-	if err != nil {
-		logger.Warn("Failed to build assets catalog: %v", err)
-		logger.Warn("Continuing without assets catalog...")
+	if cmd.lowMemory {
+		logger.Info("")
+		logger.Info("📂 Step 5: LOW MEMORY MODE - Skipping catalog pre-build")
+		logger.Info("⚠️  Files will be searched on-demand (slower but uses less RAM)")
+	} else {
+		logger.Info("")
+		logger.Info("📂 Step 5: Building hash catalogs for fast lookups...")
+		logger.Info("⏳ Scanning filesystem once instead of %d times...", len(discoveryResult.AssetsWithoutHash))
+
+		// Build assets folder catalog
+		assetsCatalog = filesystem.NewHashCatalog()
+		err = assetsCatalog.BuildCatalogFromFolder(assetsFolder)
+		if err != nil {
+			logger.Warn("Failed to build assets catalog: %v", err)
+			logger.Warn("Continuing without assets catalog...")
+		}
+
+		// Build backup folder catalog
+		backupCatalog = filesystem.NewHashCatalog()
+		err = backupCatalog.BuildCatalogFromFolder(backupRootFolder)
+		if err != nil {
+			logger.Warn("Failed to build backup catalog: %v", err)
+			logger.Warn("Continuing without backup catalog...")
+		}
+
+		logger.Info("✅ Hash catalogs ready:")
+		logger.Info("   📁 Assets folder: %d unique hashes", assetsCatalog.Size())
+		logger.Info("   💾 Backup folder: %d unique hashes", backupCatalog.Size())
 	}
-
-	// Build backup folder catalog
-	backupCatalog := filesystem.NewHashCatalog()
-	err = backupCatalog.BuildCatalogFromFolder(backupRootFolder)
-	if err != nil {
-		logger.Warn("Failed to build backup catalog: %v", err)
-		logger.Warn("Continuing without backup catalog...")
-	}
-
-	logger.Info("✅ Hash catalogs ready:")
-	logger.Info("   📁 Assets folder: %d unique hashes", assetsCatalog.Size())
-	logger.Info("   💾 Backup folder: %d unique hashes", backupCatalog.Size())
 
 	// Step 6: Batch load all database records
 	logger.Info("")
@@ -424,9 +434,8 @@ func (cmd *LookupHashCommand) processAssetsParallel(
 	return results
 }
 
-// processAssetWithCatalogs processes a single asset using pre-built hash catalogs
-// This is much faster than processAssetWithoutHash because it uses O(1) hash lookups
-// instead of O(n) filesystem walks
+// processAssetWithCatalogs processes a single asset using pre-built hash catalogs (or on-demand search in low-memory mode)
+// When catalogs are provided, uses O(1) hash lookups. When nil (low-memory mode), searches filesystem on-demand.
 func (cmd *LookupHashCommand) processAssetWithCatalogs(
 	asset canvus.AssetInfo,
 	dbCatalog map[string]database.AssetFileRecord,
@@ -458,11 +467,29 @@ func (cmd *LookupHashCommand) processAssetWithCatalogs(
 
 	logger.Info("Database: '%s' on canvas '%s' → hash=[...%s]", asset.OriginalFilename, asset.CanvasName, hashSuffix)
 
-	// Step 2: Lookup in assets catalog (O(1))
+	// Step 2: Lookup in assets folder
 	if dbRecord.PrivateHash != "" {
-		if entry, found := assetsCatalog.Lookup(dbRecord.PrivateHash); found {
+		var foundInAssets bool
+		var assetsPath string
+
+		if assetsCatalog != nil {
+			// Fast path: use pre-built catalog (O(1))
+			if entry, found := assetsCatalog.Lookup(dbRecord.PrivateHash); found {
+				foundInAssets = true
+				assetsPath = entry.FilePath
+			}
+		} else {
+			// Low-memory mode: search on-demand
+			hashResult, err := filesystem.SearchHashInAssetsFolder(cmd.config.Paths.AssetsFolder, dbRecord.PrivateHash)
+			if err == nil && hashResult.Found {
+				foundInAssets = true
+				assetsPath = hashResult.FilePath
+			}
+		}
+
+		if foundInAssets {
 			result.FoundInAssetsFolder = true
-			result.AssetsFolderPath = entry.FilePath
+			result.AssetsFolderPath = assetsPath
 			logger.Info("Assets folder: '%s' hash=[...%s] in '%s' → Found",
 				asset.OriginalFilename, hashSuffix, cmd.config.Paths.AssetsFolder)
 			return result // Found, no need to check backup
@@ -471,22 +498,46 @@ func (cmd *LookupHashCommand) processAssetWithCatalogs(
 		logger.Info("Assets folder: '%s' hash=[...%s] in '%s' → Not Found",
 			asset.OriginalFilename, hashSuffix, cmd.config.Paths.AssetsFolder)
 
-		// Step 3: Lookup in backup catalog (O(1))
-		if entry, found := backupCatalog.Lookup(dbRecord.PrivateHash); found {
+		// Step 3: Lookup in backup folder
+		var foundInBackup bool
+		var backupPath string
+		var backupExt string
+
+		if backupCatalog != nil {
+			// Fast path: use pre-built catalog (O(1))
+			if entry, found := backupCatalog.Lookup(dbRecord.PrivateHash); found {
+				foundInBackup = true
+				backupPath = entry.FilePath
+				backupExt = entry.Extension
+			}
+		} else {
+			// Low-memory mode: search on-demand using backup searcher
+			searcher := backup.NewSearcher(cmd.config.Paths.BackupRootFolder)
+			backupResult, err := searcher.SearchForAssets([]string{dbRecord.PrivateHash})
+			if err == nil {
+				if files, found := backupResult.FoundFiles[dbRecord.PrivateHash]; found && len(files) > 0 {
+					foundInBackup = true
+					backupPath = files[0].Path
+					backupExt = files[0].Extension
+				}
+			}
+		}
+
+		if foundInBackup {
 			result.FoundInBackup = true
-			result.BackupPath = entry.FilePath
+			result.BackupPath = backupPath
 
 			// Calculate target path
-			targetPath := cmd.getTargetPathFromHash(dbRecord.PrivateHash, entry.Extension)
+			targetPath := cmd.getTargetPathFromHash(dbRecord.PrivateHash, backupExt)
 
 			if cmd.dryRun {
 				logger.Info("Backup folder: '%s' hash=[...%s] in '%s' → Found at '%s' | Restoring: Skipped (Dry-Run) → Target: '%s'",
 					asset.OriginalFilename, hashSuffix, cmd.config.Paths.BackupRootFolder,
-					entry.FilePath, targetPath)
+					backupPath, targetPath)
 			} else {
 				logger.Info("Backup folder: '%s' hash=[...%s] in '%s' → Found at '%s' | Restoring: Active → Target: '%s'",
 					asset.OriginalFilename, hashSuffix, cmd.config.Paths.BackupRootFolder,
-					entry.FilePath, targetPath)
+					backupPath, targetPath)
 				// TODO: Implement actual restore logic
 			}
 		} else {
@@ -684,5 +735,10 @@ func (cmd *LookupHashCommand) SetINIPath(iniPath string) {
 // SetSkipArchived sets the skip-archived flag
 func (cmd *LookupHashCommand) SetSkipArchived(skipArchived bool) {
 	cmd.skipArchived = skipArchived
+}
+
+// SetLowMemory sets the low-memory mode flag
+func (cmd *LookupHashCommand) SetLowMemory(lowMemory bool) {
+	cmd.lowMemory = lowMemory
 }
 

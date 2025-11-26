@@ -92,6 +92,7 @@ var (
 	iniPathFlag      string
 	skipArchivedFlag bool
 	configFileFlag   string
+	lowMemoryFlag    bool
 )
 
 func init() {
@@ -107,6 +108,7 @@ func init() {
 	lookupHashCmd.Flags().BoolVar(&dryRunFlag, "dry-run", false, "Run in dry-run mode (no files will be restored)")
 	lookupHashCmd.Flags().StringVar(&iniPathFlag, "ini-path", "", "Path to mt-canvus-server.ini file (default: auto-detect)")
 	lookupHashCmd.Flags().BoolVar(&skipArchivedFlag, "skip-archived", true, "Skip archived canvases during discovery (default: true)")
+	lookupHashCmd.Flags().BoolVar(&lowMemoryFlag, "low-memory", false, "Low memory mode - search files on-demand instead of pre-building catalogs (slower but uses less RAM)")
 }
 
 // Command implementations
@@ -217,6 +219,7 @@ func runLookupHashCommand() {
 	lookupCmd := commands.NewLookupHashCommand(cfg)
 	lookupCmd.SetDryRun(dryRunFlag)
 	lookupCmd.SetSkipArchived(skipArchivedFlag)
+	lookupCmd.SetLowMemory(lowMemoryFlag)
 	if iniPathFlag != "" {
 		lookupCmd.SetINIPath(iniPathFlag)
 	}
