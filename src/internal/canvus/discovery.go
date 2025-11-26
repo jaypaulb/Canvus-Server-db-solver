@@ -106,15 +106,31 @@ func DiscoverAllAssetsWithOptions(session *canvussdk.Session, requestsPerSecond 
 	ctx := context.Background()
 	logger := logging.GetLogger()
 
-	// Get all canvases using the existing SDK
+	// ═══════════════════════════════════════════════════════════════════════
+	// STEP 1: Fetch all canvases from Canvus Server API
+	// ═══════════════════════════════════════════════════════════════════════
+	logger.Info("")
+	logger.Info("═══════════════════════════════════════════════════════════════")
+	logger.Info("STEP 1: Fetching canvas list from Canvus Server API...")
+	logger.Info("═══════════════════════════════════════════════════════════════")
+
 	allCanvases, err := session.ListCanvases(ctx, nil)
 	if err != nil {
+		logger.Error("STEP 1 FAILED: Could not fetch canvases: %v", err)
 		return nil, fmt.Errorf("failed to get canvases: %w", err)
 	}
 
-	logger.Info("📊 Total canvases returned by API: %d", len(allCanvases))
+	logger.Info("STEP 1 COMPLETE:")
+	logger.Info("   ✅ Total canvases returned by API: %d", len(allCanvases))
 
-	// Filter out archived canvases (InTrash=true means archived)
+	// ═══════════════════════════════════════════════════════════════════════
+	// STEP 2: Filter out archived canvases (InTrash=true)
+	// ═══════════════════════════════════════════════════════════════════════
+	logger.Info("")
+	logger.Info("═══════════════════════════════════════════════════════════════")
+	logger.Info("STEP 2: Filtering archived canvases (InTrash=true)...")
+	logger.Info("═══════════════════════════════════════════════════════════════")
+
 	var canvases []canvussdk.Canvas
 	archivedCount := 0
 	for _, canvas := range allCanvases {
@@ -124,9 +140,20 @@ func DiscoverAllAssetsWithOptions(session *canvussdk.Session, requestsPerSecond 
 		}
 		canvases = append(canvases, canvas)
 	}
-	logger.Info("📋 Filtered: %d active canvases, %d archived (InTrash=true) skipped", len(canvases), archivedCount)
+
+	logger.Info("STEP 2 COMPLETE:")
+	logger.Info("   ✅ Active canvases (InTrash=false): %d", len(canvases))
+	logger.Info("   ⏭️  Archived canvases skipped (InTrash=true): %d", archivedCount)
 
 	result.Canvases = canvases
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// STEP 3: Process each active canvas to extract media assets
+	// ═══════════════════════════════════════════════════════════════════════
+	logger.Info("")
+	logger.Info("═══════════════════════════════════════════════════════════════")
+	logger.Info("STEP 3: Processing %d active canvases to extract media assets...", len(canvases))
+	logger.Info("═══════════════════════════════════════════════════════════════")
 
 	// Create rate limiter
 	rateLimiter := NewRateLimiter(requestsPerSecond)
@@ -136,8 +163,11 @@ func DiscoverAllAssetsWithOptions(session *canvussdk.Session, requestsPerSecond 
 	var mu sync.Mutex
 	semaphore := make(chan struct{}, 10) // Limit concurrent requests
 
-	// Counter for progress reporting
+	// Counters for metrics
 	var processedCount int
+	var successCount int
+	var archivedByServerCount int
+	var otherErrorCount int
 	totalCanvases := len(canvases)
 
 	for _, canvas := range canvases {
@@ -150,21 +180,32 @@ func DiscoverAllAssetsWithOptions(session *canvussdk.Session, requestsPerSecond 
 			rateLimiter.Wait() // Rate limit
 
 			// Extract media assets from widgets
-			widgetAssets, widgetAssetsNoHash := extractMediaAssets(ctx, session, canvas)
+			widgetAssets, widgetAssetsNoHash, widgetErr := extractMediaAssetsWithError(ctx, session, canvas)
 
 			// Extract media assets from canvas background
 			backgroundAssets, backgroundAssetsNoHash := extractBackgroundAssets(ctx, session, canvas)
 
 			mu.Lock()
 			processedCount++
-			result.Assets = append(result.Assets, widgetAssets...)
-			result.Assets = append(result.Assets, backgroundAssets...)
-			result.AssetsWithoutHash = append(result.AssetsWithoutHash, widgetAssetsNoHash...)
-			result.AssetsWithoutHash = append(result.AssetsWithoutHash, backgroundAssetsNoHash...)
+
+			if widgetErr != nil {
+				errStr := widgetErr.Error()
+				if strings.Contains(errStr, "has been archived") || strings.Contains(errStr, "archived") {
+					archivedByServerCount++
+				} else {
+					otherErrorCount++
+				}
+			} else {
+				successCount++
+				result.Assets = append(result.Assets, widgetAssets...)
+				result.Assets = append(result.Assets, backgroundAssets...)
+				result.AssetsWithoutHash = append(result.AssetsWithoutHash, widgetAssetsNoHash...)
+				result.AssetsWithoutHash = append(result.AssetsWithoutHash, backgroundAssetsNoHash...)
+			}
 
 			// Progress reporting every 100 canvases
 			if processedCount%100 == 0 || processedCount == totalCanvases {
-				logger.Info("📊 Progress: %d/%d canvases processed", processedCount, totalCanvases)
+				logger.Info("   Progress: %d/%d canvases processed...", processedCount, totalCanvases)
 			}
 			mu.Unlock()
 		}(canvas)
@@ -172,29 +213,47 @@ func DiscoverAllAssetsWithOptions(session *canvussdk.Session, requestsPerSecond 
 
 	wg.Wait()
 
-	logger.Info("📋 Canvas processing complete: %d canvases scanned", totalCanvases)
+	logger.Info("STEP 3 COMPLETE:")
+	logger.Info("   ✅ Successfully processed: %d canvases", successCount)
+	logger.Info("   ⏭️  Skipped (server reports archived): %d canvases", archivedByServerCount)
+	logger.Info("   ⚠️  Skipped (other errors): %d canvases", otherErrorCount)
+	logger.Info("   📦 Assets with hash found: %d", len(result.Assets))
+	logger.Info("   📦 Assets without hash found: %d", len(result.AssetsWithoutHash))
 
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)
 
-	// Validate assets on the server
-	logger.Info("🔍 Validating assets on Canvus Server...")
+	// ═══════════════════════════════════════════════════════════════════════
+	// STEP 4: Asset validation summary
+	// ═══════════════════════════════════════════════════════════════════════
+	logger.Info("")
+	logger.Info("═══════════════════════════════════════════════════════════════")
+	logger.Info("STEP 4: Asset validation summary...")
+	logger.Info("═══════════════════════════════════════════════════════════════")
+
 	validationResult, err := validateAssetsOnServer(ctx, session, result.Assets)
 	if err != nil {
 		logger.Warn("Asset validation failed: %v", err)
 		result.Errors = append(result.Errors, fmt.Sprintf("Asset validation failed: %v", err))
 	} else {
 		result.ServerValidation = validationResult
-		logger.Info("✅ Server validation complete: %d/%d assets exist on server",
-			validationResult.ExistingAssets, validationResult.TotalAssets)
 	}
+
+	logger.Info("STEP 4 COMPLETE:")
+	logger.Info("   ✅ Total unique assets: %d", validationResult.TotalAssets)
+	logger.Info("   ⏱️  Discovery duration: %v", result.Duration)
+
+	logger.Info("")
+	logger.Info("═══════════════════════════════════════════════════════════════")
+	logger.Info("DISCOVERY COMPLETE")
+	logger.Info("═══════════════════════════════════════════════════════════════")
 
 	return result, nil
 }
 
-// extractMediaAssets extracts media assets from widgets by calling the generic ListWidgets endpoint
-// Returns assets with hash and assets without hash separately
-func extractMediaAssets(ctx context.Context, session *canvussdk.Session, canvas canvussdk.Canvas) ([]AssetInfo, []AssetInfo) {
+// extractMediaAssetsWithError extracts media assets from widgets and returns any error encountered
+// Returns assets with hash, assets without hash, and error (if any)
+func extractMediaAssetsWithError(ctx context.Context, session *canvussdk.Session, canvas canvussdk.Canvas) ([]AssetInfo, []AssetInfo, error) {
 	var assets []AssetInfo
 	var assetsWithoutHash []AssetInfo
 	logger := logging.GetLogger()
@@ -203,16 +262,7 @@ func extractMediaAssets(ctx context.Context, session *canvussdk.Session, canvas 
 	logger.Verbose("Getting widgets for canvas '%s' (ID: %s)", canvas.Name, canvas.ID)
 	widgets, err := session.ListWidgets(ctx, canvas.ID, nil)
 	if err != nil {
-		// Check if this is an "archived" error from the server
-		// Some canvases have InTrash=false but server still reports them as archived
-		errStr := err.Error()
-		if strings.Contains(errStr, "has been archived") || strings.Contains(errStr, "archived") {
-			logger.Verbose("Skipping archived canvas '%s' (ID: %s): server reports archived despite InTrash=false", canvas.Name, canvas.ID)
-		} else {
-			// Log other errors as warnings
-			logger.Warn("Skipping canvas '%s' (ID: %s): %v", canvas.Name, canvas.ID, err)
-		}
-		return assets, assetsWithoutHash
+		return assets, assetsWithoutHash, err
 	}
 
 	logger.Verbose("Found %d widgets in canvas '%s' (ID: %s)", len(widgets), canvas.Name, canvas.ID)
@@ -245,6 +295,13 @@ func extractMediaAssets(ctx context.Context, session *canvussdk.Session, canvas 
 
 	logger.Verbose("Extracted %d media assets (with hash) and %d media assets (without hash) from canvas '%s' (ID: %s)",
 		mediaCount, mediaCountNoHash, canvas.Name, canvas.ID)
+	return assets, assetsWithoutHash, nil
+}
+
+// extractMediaAssets extracts media assets from widgets by calling the generic ListWidgets endpoint
+// Returns assets with hash and assets without hash separately (legacy wrapper)
+func extractMediaAssets(ctx context.Context, session *canvussdk.Session, canvas canvussdk.Canvas) ([]AssetInfo, []AssetInfo) {
+	assets, assetsWithoutHash, _ := extractMediaAssetsWithError(ctx, session, canvas)
 	return assets, assetsWithoutHash
 }
 
