@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -23,30 +24,47 @@ type CanvusServerConfig struct {
 	Username         string `mapstructure:"username"`
 	Password         string `mapstructure:"password"`
 	Timeout          int    `mapstructure:"timeout"`            // seconds
-	InsecureTLS      bool   `mapstructure:"insecure_tls"`       // Skip TLS certificate verification
+	InsecureTLS      bool   `mapstructure:"insecuretls"`        // Skip TLS certificate verification
 }
 
 // PathsConfig contains file system paths
 type PathsConfig struct {
-	AssetsFolder     string `mapstructure:"assets_folder"`
-	BackupRootFolder string `mapstructure:"backup_root_folder"`
-	OutputFolder     string `mapstructure:"output_folder"`
+	AssetsFolder     string `mapstructure:"assetsfolder"`
+	BackupRootFolder string `mapstructure:"backuprootfolder"`
+	OutputFolder     string `mapstructure:"outputfolder"`
 }
 
 // LoggingConfig contains logging settings
 type LoggingConfig struct {
 	Level      string `mapstructure:"level"`       // debug, info, warn, error
 	Verbose    bool   `mapstructure:"verbose"`
-	LogToFile  bool   `mapstructure:"log_to_file"`
-	LogFile    string `mapstructure:"log_file"`
+	LogToFile  bool   `mapstructure:"logtofile"`
+	LogFile    string `mapstructure:"logfile"`
 }
 
 // PerformanceConfig contains performance tuning settings
 type PerformanceConfig struct {
-	MaxConcurrentAPI    int `mapstructure:"max_concurrent_api"`
-	MaxConcurrentFiles  int `mapstructure:"max_concurrent_files"`
-	APIRequestTimeout   int `mapstructure:"api_request_timeout"`   // seconds
-	FileOperationTimeout int `mapstructure:"file_operation_timeout"` // seconds
+	MaxConcurrentAPI    int `mapstructure:"maxconcurrentapi"`
+	MaxConcurrentFiles  int `mapstructure:"maxconcurrentfiles"`
+	APIRequestTimeout   int `mapstructure:"apirequesttimeout"`   // seconds
+	FileOperationTimeout int `mapstructure:"fileoperationtimeout"` // seconds
+}
+
+// getDefaultPaths returns OS-appropriate default paths
+func getDefaultPaths() PathsConfig {
+	if runtime.GOOS == "linux" {
+		return PathsConfig{
+			AssetsFolder:     "/var/lib/mt-canvus-server/assets",
+			BackupRootFolder: "/var/lib/mt-canvus-server/backups",
+			OutputFolder:     "./reports",
+		}
+	}
+	// Windows defaults
+	return PathsConfig{
+		AssetsFolder:     `C:\ProgramData\MultiTaction\canvus\assets`,
+		BackupRootFolder: `C:\ProgramData\MultiTaction\canvus\backups`,
+		OutputFolder:     "./reports",
+	}
 }
 
 // DefaultConfig returns a configuration with default values
@@ -59,11 +77,7 @@ func DefaultConfig() *Config {
 			Timeout:     30,
 			InsecureTLS: true, // Default to true for self-signed certificates
 		},
-		Paths: PathsConfig{
-			AssetsFolder:     `C:\ProgramData\MultiTaction\canvus\assets`,     // Read-only access for discovery
-			BackupRootFolder: `C:\ProgramData\MultiTaction\canvus\backups`,   // Read-only access for discovery
-			OutputFolder:     "./reports",  // User-accessible output folder
-		},
+		Paths: getDefaultPaths(),
 		Logging: LoggingConfig{
 			Level:      "info",
 			Verbose:    true,  // Enable verbose mode by default to show API responses
