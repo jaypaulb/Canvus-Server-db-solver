@@ -85,8 +85,8 @@ func (l *Logger) log(level LogLevel, format string, args ...interface{}) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	prefix := fmt.Sprintf("[%s] %s: ", timestamp, level.String())
 
-	// Log to console (always for ERROR and WARN, only if verbose for INFO and DEBUG)
-	if level >= WARN || l.verbose {
+	// Log to console (always for ERROR, WARN, and INFO; only if verbose for DEBUG)
+	if level >= INFO || l.verbose {
 		l.logger.Printf("%s%s", prefix, message)
 	}
 

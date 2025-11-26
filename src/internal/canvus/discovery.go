@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -202,8 +203,15 @@ func extractMediaAssets(ctx context.Context, session *canvussdk.Session, canvas 
 	logger.Verbose("Getting widgets for canvas '%s' (ID: %s)", canvas.Name, canvas.ID)
 	widgets, err := session.ListWidgets(ctx, canvas.ID, nil)
 	if err != nil {
-		// Use Warn instead of Error - some canvases may be inaccessible but not in trash
-		logger.Warn("Skipping canvas '%s' (ID: %s): %v", canvas.Name, canvas.ID, err)
+		// Check if this is an "archived" error from the server
+		// Some canvases have InTrash=false but server still reports them as archived
+		errStr := err.Error()
+		if strings.Contains(errStr, "has been archived") || strings.Contains(errStr, "archived") {
+			logger.Verbose("Skipping archived canvas '%s' (ID: %s): server reports archived despite InTrash=false", canvas.Name, canvas.ID)
+		} else {
+			// Log other errors as warnings
+			logger.Warn("Skipping canvas '%s' (ID: %s): %v", canvas.Name, canvas.ID, err)
+		}
 		return assets, assetsWithoutHash
 	}
 
