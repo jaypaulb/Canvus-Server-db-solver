@@ -97,6 +97,9 @@ func DefaultConfig() *Config {
 func LoadConfig(configFile string) (*Config, error) {
 	config := DefaultConfig()
 
+	// Reset viper to avoid issues with multiple calls
+	viper.Reset()
+
 	// Set up viper
 	viper.SetConfigType("yaml")
 	viper.SetConfigName("config")
@@ -125,7 +128,7 @@ func LoadConfig(configFile string) (*Config, error) {
 		fmt.Printf("Using config file: %s\n", viper.ConfigFileUsed())
 	}
 
-	// Unmarshal into config struct
+	// Unmarshal into config struct using exact key matching
 	if err := viper.Unmarshal(config); err != nil {
 		return nil, fmt.Errorf("error unmarshaling config: %w", err)
 	}

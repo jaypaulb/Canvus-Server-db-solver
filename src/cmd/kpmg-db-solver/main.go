@@ -91,9 +91,13 @@ var (
 	dryRunFlag       bool
 	iniPathFlag      string
 	skipArchivedFlag bool
+	configFileFlag   string
 )
 
 func init() {
+	// Global flags
+	rootCmd.PersistentFlags().StringVar(&configFileFlag, "config", "", "Path to config file (default: ./config.yaml)")
+
 	rootCmd.AddCommand(discoverCmd)
 	rootCmd.AddCommand(restoreCmd)
 	rootCmd.AddCommand(reportCmd)
@@ -226,7 +230,7 @@ func runLookupHashCommand() {
 
 func loadOrPromptConfig() (*config.Config, error) {
 	// Try to load from config file first
-	cfg, err := config.LoadConfig("")
+	cfg, err := config.LoadConfig(configFileFlag)
 	if err == nil {
 		// Check if we actually loaded a meaningful config (not just defaults)
 		if cfg.CanvusServer.Username != "" {
