@@ -112,6 +112,31 @@ func DiscoverAllAssetsWithOptions(session *canvussdk.Session, requestsPerSecond 
 		return nil, fmt.Errorf("failed to get canvases: %w", err)
 	}
 
+	logger.Info("📊 Total canvases returned by API: %d", len(allCanvases))
+
+	// Debug: Log unique states and access values found
+	stateMap := make(map[string]int)
+	accessMap := make(map[string]int)
+	inTrashCount := 0
+	for _, canvas := range allCanvases {
+		stateMap[canvas.State]++
+		accessMap[canvas.Access]++
+		if canvas.InTrash {
+			inTrashCount++
+		}
+	}
+	logger.Info("📊 Canvas states found: %v", stateMap)
+	logger.Info("📊 Canvas access values found: %v", accessMap)
+	logger.Info("📊 Canvases with InTrash=true: %d", inTrashCount)
+
+	// Log first few canvases for debugging
+	for i, canvas := range allCanvases {
+		if i < 5 {
+			logger.Info("📊 Sample canvas %d: Name='%s', State='%s', Access='%s', InTrash=%v",
+				i+1, canvas.Name, canvas.State, canvas.Access, canvas.InTrash)
+		}
+	}
+
 	// Filter out archived/trashed canvases if requested
 	canvases := allCanvases
 	if options.SkipArchived {
@@ -119,22 +144,21 @@ func DiscoverAllAssetsWithOptions(session *canvussdk.Session, requestsPerSecond 
 		trashedCount := 0
 		archivedCount := 0
 
-		// Log unique states found for debugging
-		stateMap := make(map[string]int)
-		for _, canvas := range allCanvases {
-			stateMap[canvas.State]++
-		}
-		logger.Info("📊 Canvas states found: %v", stateMap)
-
 		for _, canvas := range allCanvases {
 			// Skip canvases in trash
 			if canvas.InTrash {
 				trashedCount++
 				continue
 			}
-			// Skip archived canvases (case-insensitive check)
+			// Skip archived canvases (case-insensitive check on State field)
 			stateLower := strings.ToLower(canvas.State)
 			if stateLower == "archived" || strings.Contains(stateLower, "archive") {
+				archivedCount++
+				continue
+			}
+			// Skip canvases with "archived" in Access field
+			accessLower := strings.ToLower(canvas.Access)
+			if accessLower == "archived" || strings.Contains(accessLower, "archive") {
 				archivedCount++
 				continue
 			}
