@@ -5,7 +5,7 @@
 
 # Build configuration
 BINARY_NAME=kpmg-db-solver
-VERSION=1.3.0
+VERSION=1.3.1
 BUILD_TIME=$(shell date '+%Y-%m-%d_%H:%M:%S')
 BUILD_DIR=../bin
 SRC_DIR=../src
