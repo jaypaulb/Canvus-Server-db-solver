@@ -113,60 +113,10 @@ func DiscoverAllAssetsWithOptions(session *canvussdk.Session, requestsPerSecond 
 	}
 
 	logger.Info("📊 Total canvases returned by API: %d", len(allCanvases))
+	logger.Info("📋 Note: Archived canvases will be detected and skipped during widget retrieval")
 
-	// Debug: Log unique states and access values found
-	stateMap := make(map[string]int)
-	accessMap := make(map[string]int)
-	inTrashCount := 0
-	for _, canvas := range allCanvases {
-		stateMap[canvas.State]++
-		accessMap[canvas.Access]++
-		if canvas.InTrash {
-			inTrashCount++
-		}
-	}
-	logger.Info("📊 Canvas states found: %v", stateMap)
-	logger.Info("📊 Canvas access values found: %v", accessMap)
-	logger.Info("📊 Canvases with InTrash=true: %d", inTrashCount)
-
-	// Log first few canvases for debugging
-	for i, canvas := range allCanvases {
-		if i < 5 {
-			logger.Info("📊 Sample canvas %d: Name='%s', State='%s', Access='%s', InTrash=%v",
-				i+1, canvas.Name, canvas.State, canvas.Access, canvas.InTrash)
-		}
-	}
-
-	// Filter out archived/trashed canvases if requested
+	// Use all canvases - archived ones will be filtered out when we try to access them
 	canvases := allCanvases
-	if options.SkipArchived {
-		activeCanvases := make([]canvussdk.Canvas, 0)
-		trashedCount := 0
-		archivedCount := 0
-
-		for _, canvas := range allCanvases {
-			// Skip canvases in trash
-			if canvas.InTrash {
-				trashedCount++
-				continue
-			}
-			// Skip archived canvases (case-insensitive check on State field)
-			stateLower := strings.ToLower(canvas.State)
-			if stateLower == "archived" || strings.Contains(stateLower, "archive") {
-				archivedCount++
-				continue
-			}
-			// Skip canvases with "archived" in Access field
-			accessLower := strings.ToLower(canvas.Access)
-			if accessLower == "archived" || strings.Contains(accessLower, "archive") {
-				archivedCount++
-				continue
-			}
-			activeCanvases = append(activeCanvases, canvas)
-		}
-		canvases = activeCanvases
-		logger.Info("📋 Filtered canvases: %d active, %d in trash (skipped), %d archived (skipped)", len(canvases), trashedCount, archivedCount)
-	}
 
 	result.Canvases = canvases
 
@@ -178,6 +128,12 @@ func DiscoverAllAssetsWithOptions(session *canvussdk.Session, requestsPerSecond 
 	var mu sync.Mutex
 	semaphore := make(chan struct{}, 10) // Limit concurrent requests
 
+	// Counters for progress reporting
+	var processedCount int
+	var archivedCount int
+	var activeCount int
+	totalCanvases := len(canvases)
+
 	for _, canvas := range canvases {
 		wg.Add(1)
 		go func(canvas canvussdk.Canvas) {
@@ -188,21 +144,34 @@ func DiscoverAllAssetsWithOptions(session *canvussdk.Session, requestsPerSecond 
 			rateLimiter.Wait() // Rate limit
 
 			// Extract media assets from widgets
-			widgetAssets, widgetAssetsNoHash := extractMediaAssets(ctx, session, canvas)
-
-			// Extract media assets from canvas background
-			backgroundAssets, backgroundAssetsNoHash := extractBackgroundAssets(ctx, session, canvas)
+			widgetAssets, widgetAssetsNoHash, isArchived := extractMediaAssetsWithStatus(ctx, session, canvas)
 
 			mu.Lock()
-			result.Assets = append(result.Assets, widgetAssets...)
-			result.Assets = append(result.Assets, backgroundAssets...)
-			result.AssetsWithoutHash = append(result.AssetsWithoutHash, widgetAssetsNoHash...)
-			result.AssetsWithoutHash = append(result.AssetsWithoutHash, backgroundAssetsNoHash...)
+			processedCount++
+			if isArchived {
+				archivedCount++
+			} else {
+				activeCount++
+				// Extract media assets from canvas background (only if not archived)
+				backgroundAssets, backgroundAssetsNoHash := extractBackgroundAssets(ctx, session, canvas)
+				result.Assets = append(result.Assets, widgetAssets...)
+				result.Assets = append(result.Assets, backgroundAssets...)
+				result.AssetsWithoutHash = append(result.AssetsWithoutHash, widgetAssetsNoHash...)
+				result.AssetsWithoutHash = append(result.AssetsWithoutHash, backgroundAssetsNoHash...)
+			}
+
+			// Progress reporting every 100 canvases
+			if processedCount%100 == 0 || processedCount == totalCanvases {
+				logger.Info("📊 Progress: %d/%d canvases processed (%d active, %d archived)",
+					processedCount, totalCanvases, activeCount, archivedCount)
+			}
 			mu.Unlock()
 		}(canvas)
 	}
 
 	wg.Wait()
+
+	logger.Info("📋 Canvas processing complete: %d active, %d archived (skipped)", activeCount, archivedCount)
 
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)
@@ -222,9 +191,9 @@ func DiscoverAllAssetsWithOptions(session *canvussdk.Session, requestsPerSecond 
 	return result, nil
 }
 
-// extractMediaAssets extracts media assets from widgets by calling the generic ListWidgets endpoint
-// Returns assets with hash and assets without hash separately
-func extractMediaAssets(ctx context.Context, session *canvussdk.Session, canvas canvussdk.Canvas) ([]AssetInfo, []AssetInfo) {
+// extractMediaAssetsWithStatus extracts media assets from widgets by calling the generic ListWidgets endpoint
+// Returns assets with hash, assets without hash, and whether the canvas is archived
+func extractMediaAssetsWithStatus(ctx context.Context, session *canvussdk.Session, canvas canvussdk.Canvas) ([]AssetInfo, []AssetInfo, bool) {
 	var assets []AssetInfo
 	var assetsWithoutHash []AssetInfo
 	logger := logging.GetLogger()
@@ -233,8 +202,14 @@ func extractMediaAssets(ctx context.Context, session *canvussdk.Session, canvas 
 	logger.Verbose("Getting widgets for canvas '%s' (ID: %s)", canvas.Name, canvas.ID)
 	widgets, err := session.ListWidgets(ctx, canvas.ID, nil)
 	if err != nil {
+		// Check if this is an "archived" error - if so, return isArchived=true
+		errStr := err.Error()
+		if strings.Contains(errStr, "has been archived") || strings.Contains(errStr, "been archived") {
+			logger.Verbose("Skipping archived canvas '%s' (ID: %s)", canvas.Name, canvas.ID)
+			return assets, assetsWithoutHash, true // isArchived = true
+		}
 		logger.Error("Failed to get widgets for canvas '%s' (ID: %s): %v", canvas.Name, canvas.ID, err)
-		return assets, assetsWithoutHash // Return empty slice if we can't get widgets
+		return assets, assetsWithoutHash, false // Not archived, just an error
 	}
 
 	logger.Verbose("Found %d widgets in canvas '%s' (ID: %s)", len(widgets), canvas.Name, canvas.ID)
@@ -267,7 +242,7 @@ func extractMediaAssets(ctx context.Context, session *canvussdk.Session, canvas 
 
 	logger.Verbose("Extracted %d media assets (with hash) and %d media assets (without hash) from canvas '%s' (ID: %s)",
 		mediaCount, mediaCountNoHash, canvas.Name, canvas.ID)
-	return assets, assetsWithoutHash
+	return assets, assetsWithoutHash, false // Not archived
 }
 
 // extractBackgroundAssets extracts media assets from canvas background images
@@ -281,6 +256,11 @@ func extractBackgroundAssets(ctx context.Context, session *canvussdk.Session, ca
 	logger.Verbose("Getting background for canvas '%s' (ID: %s)", canvas.Name, canvas.ID)
 	background, err := session.GetCanvasBackground(ctx, canvas.ID)
 	if err != nil {
+		// Check if this is an "archived" error - if so, skip silently
+		errStr := err.Error()
+		if strings.Contains(errStr, "has been archived") || strings.Contains(errStr, "been archived") {
+			return assets, assetsWithoutHash
+		}
 		logger.Verbose("Failed to get background for canvas '%s' (ID: %s): %v", canvas.Name, canvas.ID, err)
 		return assets, assetsWithoutHash // Return empty slice if we can't get background
 	}
