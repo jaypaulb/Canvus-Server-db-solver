@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -117,14 +118,23 @@ func DiscoverAllAssetsWithOptions(session *canvussdk.Session, requestsPerSecond 
 		activeCanvases := make([]canvussdk.Canvas, 0)
 		trashedCount := 0
 		archivedCount := 0
+
+		// Log unique states found for debugging
+		stateMap := make(map[string]int)
+		for _, canvas := range allCanvases {
+			stateMap[canvas.State]++
+		}
+		logger.Info("📊 Canvas states found: %v", stateMap)
+
 		for _, canvas := range allCanvases {
 			// Skip canvases in trash
 			if canvas.InTrash {
 				trashedCount++
 				continue
 			}
-			// Skip archived canvases (state = "archived" or similar)
-			if canvas.State == "archived" || canvas.State == "Archived" {
+			// Skip archived canvases (case-insensitive check)
+			stateLower := strings.ToLower(canvas.State)
+			if stateLower == "archived" || strings.Contains(stateLower, "archive") {
 				archivedCount++
 				continue
 			}
