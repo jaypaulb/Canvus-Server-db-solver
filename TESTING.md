@@ -1,4 +1,4 @@
-# KPMG DB Solver - Testing Guide
+# Canvus Server DB Solver - Testing Guide
 
 ## Quick Start
 
@@ -14,7 +14,7 @@
 
 ```bash
 # Test with configuration file
-kpmg-db-solver.exe discover
+canvus-server-db-solver.exe discover
 
 # The tool will:
 # 1. Connect to Canvus Server at https://localhost:443

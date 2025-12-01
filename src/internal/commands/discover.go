@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jaypaulb/kpmg-db-solver/internal/backup"
-	"github.com/jaypaulb/kpmg-db-solver/internal/canvus"
-	"github.com/jaypaulb/kpmg-db-solver/internal/config"
-	"github.com/jaypaulb/kpmg-db-solver/internal/filesystem"
-	"github.com/jaypaulb/kpmg-db-solver/internal/logging"
+	"github.com/jaypaulb/canvus-server-db-solver/internal/backup"
+	"github.com/jaypaulb/canvus-server-db-solver/internal/canvus"
+	"github.com/jaypaulb/canvus-server-db-solver/internal/config"
+	"github.com/jaypaulb/canvus-server-db-solver/internal/filesystem"
+	"github.com/jaypaulb/canvus-server-db-solver/internal/logging"
 	canvussdk "canvus-go-api/canvus"
 )
 

@@ -82,7 +82,7 @@ func DefaultConfig() *Config {
 			Level:      "info",
 			Verbose:    true,  // Enable verbose mode by default to show API responses
 			LogToFile:  true,  // Enable log file by default
-			LogFile:    "kpmg-db-solver.log",
+			LogFile:    "canvus-server-db-solver.log",
 		},
 		Performance: PerformanceConfig{
 			MaxConcurrentAPI:     10,
@@ -105,10 +105,10 @@ func LoadConfig(configFile string) (*Config, error) {
 	viper.SetConfigName("config")
 	viper.AddConfigPath(".")
 	viper.AddConfigPath("./config")
-	viper.AddConfigPath("$HOME/.kpmg-db-solver")
+	viper.AddConfigPath("$HOME/.canvus-server-db-solver")
 
 	// Set environment variable prefix
-	viper.SetEnvPrefix("KPMG")
+	viper.SetEnvPrefix("CANVUS")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
 

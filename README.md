@@ -1,10 +1,10 @@
-# Canvus Server DB Solver (Non-Admin Version)
+# Canvus Server DB Solver
 
 A Go-based tool for identifying missing Canvus assets and locating them in backup folders.
 
 ## Overview
 
-KPMG DB Solver addresses the critical issue of missing asset files in Canvus Server deployments. When asset files are missing from the filesystem but still referenced in the database, widgets fail to load. This non-admin version identifies missing assets and reports their backup locations without requiring elevated privileges.
+Canvus Server DB Solver addresses the critical issue of missing asset files in Canvus Server deployments. When asset files are missing from the filesystem but still referenced in the database, widgets fail to load. This tool identifies missing assets and reports their backup locations.
 
 ## Features
 
@@ -14,41 +14,40 @@ KPMG DB Solver addresses the critical issue of missing asset files in Canvus Ser
 - **Backup Search & Location Reporting**: Searches multiple backup locations and reports file locations
 - **Comprehensive Reporting**: Generates detailed reports and CSV exports with backup information
 - **Parallel Processing**: Efficient handling of thousands of assets and canvases
-- **No Admin Privileges Required**: Read-only access to system directories (restoration requires admin)
-- **Windows Deployment**: Standalone executable for Windows 11/Server
+- **Cross-Platform**: Standalone executables for Windows, Linux, and macOS
 
 ## Quick Start
 
 ### Prerequisites
 
-- Windows 11 or Windows Server
-- Read access to Canvus Server directories (no admin privileges required)
-- Access to Canvus Server 3.3.0
+- Windows 11/Server, Linux, or macOS
+- Read access to Canvus Server directories
+- Access to Canvus Server 3.3.0+
 - Backup locations with asset files
 
 ### Installation
 
-1. Download the latest release
+1. Download the latest release for your platform
 2. Extract to desired location
-3. Run normally (no administrator privileges required)
+3. Run the executable
 
 ### Usage
 
 ```bash
 # Run the complete workflow
-kpmg-db-solver.exe run
+canvus-server-db-solver run
 
 # Discover missing assets
-kpmg-db-solver.exe discover
+canvus-server-db-solver discover
 
-# Lookup hash values for assets without hash (NEW)
-kpmg-db-solver.exe lookup-hash --dry-run
+# Lookup hash values for assets without hash
+canvus-server-db-solver lookup-hash --dry-run
 
 # Lookup hash values and restore from backup
-kpmg-db-solver.exe lookup-hash
+canvus-server-db-solver lookup-hash
 
 # With custom INI path
-kpmg-db-solver.exe lookup-hash --ini-path "C:\path\to\mt-canvus-server.ini"
+canvus-server-db-solver lookup-hash --ini-path "/path/to/mt-canvus-server.ini"
 ```
 
 The tool uses interactive prompts for configuration. Key settings:
@@ -62,9 +61,13 @@ The tool uses interactive prompts for configuration. Key settings:
 The tool uses interactive prompts for configuration. Key settings:
 
 - **Canvus Server URL**: Full URL to your Canvus Server API
-- **Assets Folder**: Path to the active Canvus assets directory (default: `C:\ProgramData\MultiTaction\canvus\assets`)
-- **Backup Root Folder**: Root directory containing backup folders (default: `C:\ProgramData\MultiTaction\canvus\backups`)
-- **Database Configuration**: Automatically reads from `C:\ProgramData\MultiTaction\canvus\mt-canvus-server.ini`
+- **Assets Folder**: Path to the active Canvus assets directory
+  - Windows: `C:\ProgramData\MultiTaction\Canvus\assets`
+  - Linux: `/var/lib/mt-canvus-server/assets`
+- **Backup Root Folder**: Root directory containing backup folders
+  - Windows: `C:\ProgramData\MultiTaction\Canvus\backups`
+  - Linux: `/var/lib/mt-canvus-server/backups`
+- **Database Configuration**: Automatically reads from `mt-canvus-server.ini`
 - **Verbose Logging**: Optional detailed logging for troubleshooting
 
 ## Output
@@ -76,41 +79,37 @@ The tool generates:
 3. **Hash Lookup Report**: For assets without hash values, shows database lookup results, assets folder search results, and backup locations
 4. **Backup Location Report**: All backup file locations for assets that can be restored
 
-## Limitations
-
-This non-admin version provides read-only access and cannot restore assets. For asset restoration, you would need:
-- Administrator privileges
-- The full version of the tool
-- Write access to the Canvus assets directory
-
 ## Architecture
 
 - **Go 1.21+**: High-performance, concurrent processing
-- **Canvus SDK**: Proven API integration with Canvus Server 3.3.0
+- **Canvus SDK**: Proven API integration with Canvus Server 3.3.0+
 - **PostgreSQL Integration**: Direct database access for hash lookup (read-only)
 - **Parallel Processing**: Simultaneous API calls and filesystem operations
 - **Modular Design**: Clean separation of concerns for maintainability
 
-## New Feature: Hash Lookup for Assets Without Hash
+## Hash Lookup Feature
 
 The `lookup-hash` command processes assets that don't have hash values by:
 
 1. **Database Query**: Connects to PostgreSQL database (from `mt-canvus-server.ini`) and queries the `asset_files` table by `original_filename` to retrieve public and private hash values
 2. **Assets Folder Search**: Searches for the private hash in the assets folder using the first 2 characters as a subfolder (e.g., `assets/ab/abcdef123456.jpg`)
 3. **Backup Search**: If not found in assets folder, searches backup locations for the hash
-4. **Restoration**: Offers to restore files from backup if found (requires admin privileges)
+4. **Restoration**: Offers to restore files from backup if found
 
 ### Hash Lookup Usage
 
 ```bash
 # Dry-run mode (recommended first) - shows what would be done without restoring
-kpmg-db-solver.exe lookup-hash --dry-run
+canvus-server-db-solver lookup-hash --dry-run
 
 # Live mode - will offer to restore files from backup
-kpmg-db-solver.exe lookup-hash
+canvus-server-db-solver lookup-hash
 
 # Custom INI file path
-kpmg-db-solver.exe lookup-hash --ini-path "C:\custom\path\mt-canvus-server.ini"
+canvus-server-db-solver lookup-hash --ini-path "/path/to/mt-canvus-server.ini"
+
+# Low memory mode for systems with limited RAM
+canvus-server-db-solver lookup-hash --low-memory
 ```
 
 The hash lookup report shows:
@@ -131,4 +130,4 @@ For issues, questions, or contributions, please refer to the project documentati
 
 ## License
 
-This project is proprietary software developed for KPMG internal use.
+This project is open source software for Canvus Server asset management.

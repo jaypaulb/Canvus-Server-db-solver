@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jaypaulb/kpmg-db-solver/internal/logging"
+	"github.com/jaypaulb/canvus-server-db-solver/internal/logging"
 	canvussdk "canvus-go-api/canvus"
 )
 

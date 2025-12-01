@@ -1,11 +1,11 @@
-# KPMG DB Solver Build Makefile
+# Canvus Server DB Solver Build Makefile
 # Usage: make build, make build-windows, make clean, etc.
 
 .PHONY: build build-windows build-linux build-mac clean test lint help
 
 # Build configuration
-BINARY_NAME=kpmg-db-solver
-VERSION=1.3.4
+BINARY_NAME=canvus-server-db-solver
+VERSION=2.0.0
 BUILD_TIME=$(shell date '+%Y-%m-%d_%H:%M:%S')
 BUILD_DIR=../bin
 SRC_DIR=../src
@@ -20,28 +20,28 @@ all: build
 build:
 	@echo "🔨 Building $(BINARY_NAME) for current platform..."
 	@mkdir -p $(BUILD_DIR)
-	cd $(SRC_DIR) && go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/kpmg-db-solver
+	cd $(SRC_DIR) && go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/canvus-server-db-solver
 	@echo "✅ Build completed: $(BUILD_DIR)/$(BINARY_NAME)"
 
 # Build for Windows
 build-windows:
 	@echo "🔨 Building $(BINARY_NAME) for Windows..."
 	@mkdir -p $(BUILD_DIR)
-	cd $(SRC_DIR) && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME).exe ./cmd/kpmg-db-solver
+	cd $(SRC_DIR) && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME).exe ./cmd/canvus-server-db-solver
 	@echo "✅ Windows build completed: $(BUILD_DIR)/$(BINARY_NAME).exe"
 
 # Build for Linux
 build-linux:
 	@echo "🔨 Building $(BINARY_NAME) for Linux..."
 	@mkdir -p $(BUILD_DIR)
-	cd $(SRC_DIR) && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux ./cmd/kpmg-db-solver
+	cd $(SRC_DIR) && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux ./cmd/canvus-server-db-solver
 	@echo "✅ Linux build completed: $(BUILD_DIR)/$(BINARY_NAME)-linux"
 
 # Build for macOS
 build-mac:
 	@echo "🔨 Building $(BINARY_NAME) for macOS..."
 	@mkdir -p $(BUILD_DIR)
-	cd $(SRC_DIR) && GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-mac ./cmd/kpmg-db-solver
+	cd $(SRC_DIR) && GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-mac ./cmd/canvus-server-db-solver
 	@echo "✅ macOS build completed: $(BUILD_DIR)/$(BINARY_NAME)-mac"
 
 # Build for all platforms
@@ -79,7 +79,7 @@ deps:
 
 # Show help
 help:
-	@echo "KPMG DB Solver Build System"
+	@echo "Canvus Server DB Solver Build System"
 	@echo ""
 	@echo "Available targets:"
 	@echo "  build          Build for current platform"

@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jaypaulb/kpmg-db-solver/internal/logging"
+	"github.com/jaypaulb/canvus-server-db-solver/internal/logging"
 )
 
 // Restorer handles copying backup files to the assets folder

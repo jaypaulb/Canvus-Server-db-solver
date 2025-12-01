@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jaypaulb/kpmg-db-solver/internal/logging"
+	"github.com/jaypaulb/canvus-server-db-solver/internal/logging"
 )
 
 // HashSearchResult represents the result of searching for a hash in the assets folder

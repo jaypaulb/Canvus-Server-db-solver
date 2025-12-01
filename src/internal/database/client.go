@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	_ "github.com/lib/pq"
-	"github.com/jaypaulb/kpmg-db-solver/internal/logging"
+	"github.com/jaypaulb/canvus-server-db-solver/internal/logging"
 )
 
 // AssetFileRecord represents a record from the asset_files table

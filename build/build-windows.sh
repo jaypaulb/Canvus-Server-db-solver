@@ -1,9 +1,9 @@
 #!/bin/bash
-# Bash script to build KPMG DB Solver for Windows
+# Bash script to build Canvus Server DB Solver for Windows
 # Usage: ./scripts/build-windows.sh
 
-echo "🔨 Building KPMG DB Solver for Windows"
-echo "======================================="
+echo "🔨 Building Canvus Server DB Solver for Windows"
+echo "================================================"
 
 # Check if Go is installed
 if ! command -v go &> /dev/null; then
@@ -16,9 +16,9 @@ echo "✅ Go version: $(go version)"
 
 # Set build parameters
 BUILD_TIME=$(date '+%Y-%m-%d %H:%M:%S')
-VERSION="1.1.0"
+VERSION="2.0.0"
 OUTPUT_DIR="bin"
-OUTPUT_FILE="kpmg-db-solver.exe"
+OUTPUT_FILE="canvus-server-db-solver.exe"
 
 # Create output directory if it doesn't exist
 mkdir -p "$OUTPUT_DIR"
@@ -38,7 +38,7 @@ cd src
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build \
     -ldflags "-X main.version=$VERSION -X main.buildTime=$BUILD_TIME" \
     -o "../$OUTPUT_DIR/$OUTPUT_FILE" \
-    ./cmd/kpmg-db-solver
+    ./cmd/canvus-server-db-solver
 
 if [ $? -eq 0 ]; then
     echo "✅ Build completed successfully!"
@@ -66,5 +66,5 @@ cd ..
 echo ""
 echo "🔍 Next Steps:"
 echo "   1. Copy the executable to your Windows machine"
-echo "   2. Run: .\kpmg-db-solver.exe discover"
-echo "   3. Or run: .\kpmg-db-solver.exe run"
+echo "   2. Run: .\canvus-server-db-solver.exe discover"
+echo "   3. Or run: .\canvus-server-db-solver.exe run"

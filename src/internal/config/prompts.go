@@ -46,8 +46,8 @@ func (p *InteractivePrompts) setupSignalHandler() {
 
 // PromptForConfig prompts the user for all required configuration
 func (p *InteractivePrompts) PromptForConfig() (*Config, error) {
-	fmt.Println("🔧 KPMG DB Solver Configuration")
-	fmt.Println("=================================")
+	fmt.Println("🔧 Canvus Server DB Solver Configuration")
+	fmt.Println("=========================================")
 	fmt.Println()
 
 	config := DefaultConfig()
@@ -90,7 +90,7 @@ func (p *InteractivePrompts) PromptForConfig() (*Config, error) {
 	config.Logging.LogToFile = logToFile
 
 	if logToFile {
-		config.Logging.LogFile = p.promptString("Log file path", "kpmg-db-solver.log", false)
+		config.Logging.LogFile = p.promptString("Log file path", "canvus-server-db-solver.log", false)
 	}
 
 	fmt.Println()

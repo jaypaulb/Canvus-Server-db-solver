@@ -1,4 +1,4 @@
-# KPMG DB Solver - Sample Configuration
+# Canvus Server DB Solver - Sample Configuration
 # Copy this file to config.yaml and update with your actual values
 
 # Canvus Server Configuration
@@ -20,7 +20,7 @@ logging:
   level: "info"        # debug, info, warn, error
   verbose: true        # Enable verbose mode to see detailed API responses
   log_to_file: true    # Enable logging to file
-  log_file: "kpmg-db-solver.log"
+  log_file: "canvus-server-db-solver.log"
 
 # Performance Settings
 performance:

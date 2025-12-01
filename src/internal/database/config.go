@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"gopkg.in/ini.v1"
-	"github.com/jaypaulb/kpmg-db-solver/internal/logging"
+	"github.com/jaypaulb/canvus-server-db-solver/internal/logging"
 )
 
 // DBConfig represents database configuration from mt-canvus-server.ini

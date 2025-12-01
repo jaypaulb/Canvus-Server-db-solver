@@ -1,4 +1,4 @@
-module github.com/jaypaulb/kpmg-db-solver
+module github.com/jaypaulb/canvus-server-db-solver
 
 replace canvus-go-api => ./pkg/canvus
 

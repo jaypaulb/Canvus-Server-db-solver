@@ -1,11 +1,12 @@
 # Build System
 
-This directory contains the build system and tools for the KPMG DB Solver project.
+This directory contains the build system and tools for the Canvus Server DB Solver project.
 
 ## Files
 
 - `Makefile` - Main build automation with cross-platform support
-- `build-windows.sh` - PowerShell script for Windows builds
+- `build-windows.sh` - Bash script for Windows builds
+- `sync-gitlab.sh` - Script to sync with GitLab repository
 - `README.md` - This documentation
 
 ## Quick Start
@@ -56,16 +57,16 @@ make clean
 
 All built executables are placed in the `../bin/` directory:
 
-- `kpmg-db-solver` - Linux/macOS executable
-- `kpmg-db-solver.exe` - Windows executable
-- `kpmg-db-solver-linux` - Linux executable (cross-compiled)
-- `kpmg-db-solver-mac` - macOS executable (cross-compiled)
+- `canvus-server-db-solver` - Linux/macOS executable
+- `canvus-server-db-solver.exe` - Windows executable
+- `canvus-server-db-solver-linux` - Linux executable (cross-compiled)
+- `canvus-server-db-solver-mac` - macOS executable (cross-compiled)
 
 ## Requirements
 
 - Go 1.21 or later
 - Make (for Makefile targets)
-- PowerShell (for Windows build script)
+- Bash (for build scripts)
 
 ## Cross-Compilation
 

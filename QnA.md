@@ -1,4 +1,4 @@
-# KPMG DB Solver - Requirements Q&A
+# Canvus Server DB Solver - Requirements Q&A
 
 ## Problem Definition & Context
 

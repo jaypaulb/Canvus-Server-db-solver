@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jaypaulb/kpmg-db-solver/internal/logging"
+	"github.com/jaypaulb/canvus-server-db-solver/internal/logging"
 )
 
 // HashCatalogEntry represents a file in the hash catalog

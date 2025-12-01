@@ -1,5 +1,5 @@
 #!/bin/bash
-# GitLab Sync Script for KPMG DB Solver
+# GitLab Sync Script for Canvus Server DB Solver
 # Usage: ./build/sync-gitlab.sh
 
 set -e
@@ -9,7 +9,7 @@ echo "🔄 Syncing with GitLab repository..."
 # Check if gitlab remote exists
 if ! git remote get-url gitlab >/dev/null 2>&1; then
     echo "❌ GitLab remote not found. Adding it now..."
-    git remote add gitlab https://gitlab.multitaction.com/swrd/kpmg-db-solver.git
+    git remote add gitlab https://gitlab.multitaction.com/swrd/canvus-server-db-solver.git
 fi
 
 # Fetch latest from GitLab

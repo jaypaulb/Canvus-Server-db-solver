@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jaypaulb/kpmg-db-solver/internal/logging"
+	"github.com/jaypaulb/canvus-server-db-solver/internal/logging"
 )
 
 // BackupFile represents a found backup file

@@ -2,7 +2,7 @@
 
 ## Architecture Overview
 
-The KPMG DB Solver is designed as a standalone Go application that integrates with the Canvus Server API to identify and restore missing assets. The architecture follows a modular design with clear separation of concerns:
+The Canvus Server DB Solver is designed as a standalone Go application that integrates with the Canvus Server API to identify and restore missing assets. The architecture follows a modular design with clear separation of concerns:
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
@@ -143,14 +143,14 @@ The KPMG DB Solver is designed as a standalone Go application that integrates wi
 //go:build windows
 
 // Cross-compilation for Windows from Linux
-GOOS=windows GOARCH=amd64 go build -o kpmg-db-solver.exe
+GOOS=windows GOARCH=amd64 go build -o canvus-server-db-solver.exe
 ```
 
 ### Project Structure
 ```
-kpmg-db-solver/
+canvus-server-db-solver/
 ├── cmd/
-│   └── kpmg-db-solver/     # Main CLI application
+│   └── canvus-server-db-solver/     # Main CLI application
 ├── internal/
 │   ├── api/               # Canvus API integration
 │   ├── filesystem/        # File operations

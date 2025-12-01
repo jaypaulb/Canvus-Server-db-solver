@@ -13,7 +13,7 @@ logging:
   level: "info"
   verbose: false
   log_to_file: false
-  log_file: "kpmg-db-solver.log"
+  log_file: "canvus-server-db-solver.log"
 
 performance:
   max_concurrent_api: 10
