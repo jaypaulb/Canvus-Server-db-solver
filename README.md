@@ -1,4 +1,4 @@
-# KPMG DB Solver (Non-Admin Version)
+# Canvus Server DB Solver (Non-Admin Version)
 
 A Go-based tool for identifying missing Canvus assets and locating them in backup folders.
 
